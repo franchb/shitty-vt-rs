@@ -46,7 +46,7 @@ Working: feed, resize, per-cell reads with grapheme clusters and resolved
 colours, cursor, mode flags, reply draining, scrollback view movement,
 row-addressed history reads, memory accounting, a changeable history cap, and
 the title, bell, damage, open-uri, clipboard and resize-request callbacks.
-Twenty-one behaviour tests
+Twenty-two behaviour tests
 cover these, in the same cell-dump format the Luvus conformance tests use so
 the two engines can be diffed directly.
 
@@ -70,13 +70,14 @@ Written down because the gaps are the interesting part, not the matches.
 | `retained_row_text`, `for_each_retained_row`, `retained_row_count` | `shitty_vt_row_cells`, `shitty_vt_total_rows` — needs pg83/shitty#100 |
 | `history_metrics` | `shitty_vt_memory_usage` — cells only, so report it as an estimate rather than exact |
 | `set_history_budget` | `shitty_vt_set_save_lines` — a row cap, so a byte budget has to be divided by the row cost the same call reports |
-| `alternate_scroll` | **missing** — not among the mode bits |
+| `alternate_scroll` | `shitty_vt_modes` bit 15 — needs pg83/shitty#101 |
 
 The visible grid and the scrollback are both covered once pg83/shitty#99 and
 pg83/shitty#100 land; until they do, the scrolling, row-reading and budgeting
-calls need a shitty checkout carrying them. A host can render, scroll, search
-and budget a pane. The one thing still unreachable is `alternate_scroll`, which
-is a mode bit rather than a scrollback concern.
+calls need a shitty checkout carrying them, and `Modes::alternate_scroll` needs
+pg83/shitty#101. With those, every method on Luvus's `VtEngine` has something
+behind it — though `history_metrics` and `set_history_budget` are honest partial
+matches rather than exact ones, as the table notes.
 
 ### Known quirks
 

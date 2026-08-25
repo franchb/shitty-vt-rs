@@ -296,3 +296,21 @@ fn the_visible_grid_survives_a_cap_change() {
     term.set_save_lines(5);
     assert_eq!(visible(&term), before);
 }
+
+#[test]
+fn alternate_scroll_is_reported_separately_from_the_alternate_screen() {
+    let mut term = Terminal::new(20, 4, 0);
+    assert!(!term.modes().alternate_scroll());
+
+    term.feed(b"\x1b[?1007h");
+    assert!(term.modes().alternate_scroll());
+    assert!(!term.modes().alt_screen(), "1007 does not imply 1049");
+
+    term.feed(b"\x1b[?1049h");
+    assert!(term.modes().alternate_scroll());
+    assert!(term.modes().alt_screen());
+
+    term.feed(b"\x1b[?1007l");
+    assert!(!term.modes().alternate_scroll());
+    assert!(term.modes().alt_screen(), "clearing 1007 leaves 1049 alone");
+}

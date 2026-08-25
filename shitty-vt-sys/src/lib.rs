@@ -40,6 +40,7 @@ pub const SHITTY_VT_MODE_MOUSE_CLICK: u32 = 1 << 11;
 pub const SHITTY_VT_MODE_MOUSE_DRAG: u32 = 1 << 12;
 pub const SHITTY_VT_MODE_MOUSE_MOTION: u32 = 1 << 13;
 pub const SHITTY_VT_MODE_MOUSE_SGR: u32 = 1 << 14;
+pub const SHITTY_VT_MODE_ALTERNATE_SCROLL: u32 = 1 << 15;
 
 /// One readable cell. Colours are `0x00BBGGRR`. `grapheme` is valid only for
 /// the duration of the [`shitty_vt_cell_fn`] callback.

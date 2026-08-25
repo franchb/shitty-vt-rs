@@ -132,6 +132,13 @@ impl Modes {
     mode!(mouse_drag, SHITTY_VT_MODE_MOUSE_DRAG);
     mode!(mouse_motion, SHITTY_VT_MODE_MOUSE_MOTION);
     mode!(mouse_sgr, SHITTY_VT_MODE_MOUSE_SGR);
+
+    /// DECSET 1007. While [`Modes::alt_screen`] is also set, wheel input
+    /// belongs to the application as arrow keys rather than moving a history
+    /// the alternate screen does not keep.
+    pub fn alternate_scroll(self) -> bool {
+        self.0 & sys::SHITTY_VT_MODE_ALTERNATE_SCROLL != 0
+    }
 }
 
 /// What the terminal is spending on its grid and history.
