@@ -100,6 +100,13 @@ extern "C" {
     pub fn shitty_vt_scroll_to(vt: *mut shitty_vt, offset: u32) -> u32;
     pub fn shitty_vt_scroll_offset(vt: *const shitty_vt) -> u32;
     pub fn shitty_vt_history_rows(vt: *const shitty_vt) -> u32;
+    pub fn shitty_vt_total_rows(vt: *const shitty_vt) -> u32;
+    pub fn shitty_vt_row_cells(
+        vt: *mut shitty_vt,
+        index: u32,
+        f: shitty_vt_cell_fn,
+        user: *mut c_void,
+    );
     pub fn shitty_vt_cursor_state(vt: *const shitty_vt) -> shitty_vt_cursor;
     pub fn shitty_vt_modes(vt: *const shitty_vt) -> u32;
 }

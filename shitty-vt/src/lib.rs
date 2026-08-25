@@ -145,6 +145,40 @@ struct Events {
     resize_request: Option<(u16, u16)>,
 }
 
+/// Hands one C cell to a Rust closure. Shared by every walk, so the two
+/// entry points cannot drift in how they decode a cell.
+///
+/// # Safety
+/// `user` must point at a live `F` for the duration of the call, and `cell`
+/// must be valid; both hold for the walks below, which pass a stack closure
+/// and are synchronous.
+unsafe extern "C" fn visit<F: FnMut(u16, u16, Cell<'_>)>(
+    user: *mut c_void,
+    row: u16,
+    column: u16,
+    cell: *const sys::shitty_vt_cell,
+) {
+    let cell = &*cell;
+    let grapheme = if cell.grapheme.is_null() || cell.grapheme_len == 0 {
+        &[][..]
+    } else {
+        std::slice::from_raw_parts(cell.grapheme, cell.grapheme_len)
+    };
+    (*(user as *mut F))(
+        row,
+        column,
+        Cell {
+            grapheme,
+            foreground: Rgb::from_packed(cell.foreground),
+            background: Rgb::from_packed(cell.background),
+            underline_color: Rgb::from_packed(cell.underline_color),
+            attributes: Attributes(cell.attributes),
+            underline_style: cell.underline_style,
+            width: cell.width,
+        },
+    );
+}
+
 /// An embedded terminal.
 pub struct Terminal {
     raw: *mut sys::shitty_vt,
@@ -259,36 +293,26 @@ impl Terminal {
     /// Visits every visible cell row-major. Wide-cell continuations are
     /// skipped, so a `width == 2` cell is followed by a column gap.
     pub fn for_each_cell<F: FnMut(u16, u16, Cell<'_>)>(&self, mut f: F) {
-        unsafe extern "C" fn visit<F: FnMut(u16, u16, Cell<'_>)>(
-            user: *mut c_void,
-            row: u16,
-            column: u16,
-            cell: *const sys::shitty_vt_cell,
-        ) {
-            let cell = &*cell;
-            let grapheme = if cell.grapheme.is_null() || cell.grapheme_len == 0 {
-                &[][..]
-            } else {
-                std::slice::from_raw_parts(cell.grapheme, cell.grapheme_len)
-            };
-            (*(user as *mut F))(
-                row,
-                column,
-                Cell {
-                    grapheme,
-                    foreground: Rgb::from_packed(cell.foreground),
-                    background: Rgb::from_packed(cell.background),
-                    underline_color: Rgb::from_packed(cell.underline_color),
-                    attributes: Attributes(cell.attributes),
-                    underline_style: cell.underline_style,
-                    width: cell.width,
-                },
-            );
-        }
         // SAFETY: `visit::<F>` is only ever called with `user` pointing at
         // `f`, and only for the duration of this call.
         unsafe {
             sys::shitty_vt_each_cell(self.raw, visit::<F>, &mut f as *mut F as *mut c_void);
+        }
+    }
+
+    /// Rows addressable through [`Terminal::row_cells`]: the retained history
+    /// followed by the visible grid.
+    pub fn total_rows(&self) -> u32 {
+        unsafe { sys::shitty_vt_total_rows(self.raw) }
+    }
+
+    /// Visits one row by absolute index, oldest first, without moving the
+    /// view. Index 0 is the oldest retained row; the last index is the bottom
+    /// of the live screen. An index past the end visits nothing.
+    pub fn row_cells<F: FnMut(u16, u16, Cell<'_>)>(&self, index: u32, mut f: F) {
+        // SAFETY: as in `for_each_cell`.
+        unsafe {
+            sys::shitty_vt_row_cells(self.raw, index, visit::<F>, &mut f as *mut F as *mut c_void);
         }
     }
 

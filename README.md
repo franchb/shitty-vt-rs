@@ -43,9 +43,9 @@ own link line, to see what your host chose.
 ## Status
 
 Working: feed, resize, per-cell reads with grapheme clusters and resolved
-colours, cursor, mode flags, reply draining, scrollback view movement, and the
-title, bell, damage, open-uri, clipboard and resize-request callbacks.
-Sixteen behaviour tests
+colours, cursor, mode flags, reply draining, scrollback view movement,
+row-addressed history reads, and the title, bell, damage, open-uri, clipboard
+and resize-request callbacks. Seventeen behaviour tests
 cover these, in the same cell-dump format the Luvus conformance tests use so
 the two engines can be diffed directly.
 
@@ -66,15 +66,15 @@ Written down because the gaps are the interesting part, not the matches.
 | `output_generation`, `finish_output_batch` | no equivalent needed; track locally |
 | `snapshot_ansi` | not exposed; synthesizable from cells and attributes |
 | `scroll`, `scroll_to`, `scroll_to_top`, `scroll_to_bottom`, `scroll_offset`, `history_len` | `shitty_vt_scroll`, `shitty_vt_scroll_to`, `shitty_vt_scroll_offset`, `shitty_vt_history_rows` — needs pg83/shitty#99 |
-| `retained_row_text`, `for_each_retained_row`, `retained_row_count` | **missing** — history is reachable only by moving the view |
+| `retained_row_text`, `for_each_retained_row`, `retained_row_count` | `shitty_vt_row_cells`, `shitty_vt_total_rows` — needs pg83/shitty#100 |
 | `history_metrics`, `set_history_budget` | **missing** — no byte accounting, and `save_lines` is fixed at construction |
 | `alternate_scroll` | **missing** — not among the mode bits |
 
-The visible grid is fully covered. Scrolling arrives with pg83/shitty#99; until
-that merges, `Terminal::scroll` and friends need a shitty checkout carrying it.
-What remains missing is row-addressed history reads and byte-level history
-accounting — enough for a renderer to scroll a pane, not yet enough for a host
-that wants to search the scrollback or budget it in bytes.
+The visible grid and the scrollback are both covered once pg83/shitty#99 and
+pg83/shitty#100 land; until they do, the scrolling and row-reading calls need a
+shitty checkout carrying them. What remains missing is byte-level history
+accounting and changing `save_lines` after construction — a host can render,
+scroll and search a pane, but cannot budget its history in bytes.
 
 ### Known quirks
 

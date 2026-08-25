@@ -195,3 +195,36 @@ fn a_terminal_keeping_no_lines_has_nothing_to_scroll() {
     assert_eq!(term.history_rows(), 0);
     assert_eq!(term.scroll(5), 0);
 }
+
+#[test]
+fn history_rows_are_addressable_without_moving_the_view() {
+    let mut term = Terminal::new(20, 6, 100);
+    for index in 0..10 {
+        term.feed(format!("line{index}\r\n").as_bytes());
+    }
+    assert_eq!(term.total_rows(), 11);
+
+    let row_text = |term: &Terminal, index: u32| {
+        let mut text = String::new();
+        term.row_cells(index, |_, _, cell| text.push_str(&cell.text()));
+        text.trim_end().to_string()
+    };
+    assert_eq!(row_text(&term, 0), "line0", "oldest retained row");
+    assert_eq!(row_text(&term, 9), "line9", "last written row");
+    assert_eq!(
+        row_text(&term, 10),
+        "",
+        "the row the trailing newline opened"
+    );
+
+    // Scrolling the view must not move what an index means.
+    term.scroll(3);
+    assert_eq!(term.scroll_offset(), 3);
+    assert_eq!(row_text(&term, 0), "line0");
+    assert_eq!(row_text(&term, 9), "line9");
+
+    // Past the end visits nothing rather than misbehaving.
+    let mut visited = 0;
+    term.row_cells(11, |_, _, _| visited += 1);
+    assert_eq!(visited, 0);
+}
