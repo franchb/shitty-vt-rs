@@ -14,8 +14,30 @@ on:
 jobs:
   test:
     name: build the facade, test both link modes
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    # The core is C++26. Fedora's stock toolchain can build it, and keeping
+    # the terminal and the tests on one libc matters: a nix-built library
+    # against a system-built test binary fails to load.
+    container: fedora:44
+    timeout-minutes: 60
     steps:
+      - name: Install the toolchain
+        run: |
+          for attempt in 1 2 3; do
+            if dnf -y --setopt=install_weak_deps=False \
+                --setopt=retries=10 --setopt=timeout=60 \
+                --setopt=fastestmirror=True --setopt=zchunk=False \
+                install \
+                gcc-c++ make git python3 perl pkgconf-pkg-config diffutils \
+                binutils ragel cargo rustfmt clippy \
+                freetype-devel fontconfig-devel harfbuzz-devel \
+                libxkbcommon-devel; then
+              exit 0
+            fi
+            echo "dnf attempt $attempt failed, retrying"
+          done
+          exit 1
+
       - name: Check out the bindings
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -26,23 +48,17 @@ jobs:
           ref: master
           path: shitty
 
-      # The core is C++26; the flake's dev shell is the supported way to
-      # get a toolchain that can build it.
-      - name: Install nix
-        uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
-        with:
-          enable_kvm: false
-
       - name: Record which shitty this is
-        run: git -C shitty log --oneline -1
+        run: git config --global --add safe.directory "$PWD/shitty" && git -C shitty log --oneline -1
 
       - name: Build libshitty_vt
         working-directory: shitty
-        run: nix develop --command ./build a so
+        run: ./build a so
 
       # The static archive cannot carry the system libraries libstd probed
-      # for, and which those are varies by host, so read them back off the
-      # shared object rather than guessing. See pg83/shitty#102.
+      # for, and which those are varies by host - this job and a Fedora
+      # workstation already disagree - so read them back off the shared
+      # object rather than guessing. See pg83/shitty#102.
       - name: Derive the static link libraries
         run: |
           libs=$(readelf -d shitty/.build/libshitty_vt.so \
