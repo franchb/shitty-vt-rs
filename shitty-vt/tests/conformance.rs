@@ -114,14 +114,26 @@ fn alternate_screen_and_bracketed_paste_report_through_modes() {
 #[test]
 fn osc_title_reaches_the_embedder() {
     let mut term = Terminal::new(8, 2, 0);
-    // The facade publishes an empty title at construction rather than
-    // staying silent until the application sets one - pinned so a change
-    // upstream is visible here.
-    assert_eq!(term.title().as_deref(), Some(""));
+    // Silence until the application sets one: construction publishes
+    // nothing, and neither does output that sets no title.
+    assert_eq!(term.title(), None);
+    term.feed(b"x");
+    assert_eq!(term.title(), None);
+
     term.feed(b"\x1b]0;a pane\x07");
     assert_eq!(term.title().as_deref(), Some("a pane"));
     term.feed(b"\x1b]2;second\x1b\\");
     assert_eq!(term.title().as_deref(), Some("second"));
+}
+
+#[test]
+fn a_reset_the_application_sends_publishes_the_cleared_title() {
+    // The distinction that makes `None` meaningful: an empty title is real
+    // activity, not a starting state, so RIS reports one.
+    let mut term = Terminal::new(8, 2, 0);
+    term.feed(b"\x1b]0;a pane\x07");
+    term.feed(b"\x1bc");
+    assert_eq!(term.title().as_deref(), Some(""));
 }
 
 #[test]

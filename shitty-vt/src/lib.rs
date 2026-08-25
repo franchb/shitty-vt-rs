@@ -409,11 +409,11 @@ impl Terminal {
         Modes(unsafe { sys::shitty_vt_modes(self.raw) })
     }
 
-    /// The most recent title the application set.
+    /// The most recent title the application set, or `None` while it has set
+    /// none: the facade stays silent until the first one arrives.
     ///
-    /// Note that the facade publishes an empty title once at construction, so
-    /// this reads `Some("")` before the application has set anything. Treat
-    /// emptiness, not `None`, as "no title yet".
+    /// `Some("")` is therefore real activity rather than a starting state —
+    /// a reset the application sends (RIS) publishes the cleared title.
     pub fn title(&self) -> Option<String> {
         self.events
             .title

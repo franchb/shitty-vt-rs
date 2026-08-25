@@ -46,7 +46,7 @@ Working: feed, resize, per-cell reads with grapheme clusters and resolved
 colours, cursor, mode flags, reply draining, scrollback view movement,
 row-addressed history reads, memory accounting, a changeable history cap, and
 the title, bell, damage, open-uri, clipboard and resize-request callbacks.
-Twenty-two behaviour tests
+Twenty-three behaviour tests
 cover these, in the same cell-dump format the Luvus conformance tests use so
 the two engines can be diffed directly.
 
@@ -66,24 +66,22 @@ Written down because the gaps are the interesting part, not the matches.
 | `visible_rows`, `detection_text`, `codex_composer_region` | derivable from cells |
 | `output_generation`, `finish_output_batch` | no equivalent needed; track locally |
 | `snapshot_ansi` | not exposed; synthesizable from cells and attributes |
-| `scroll`, `scroll_to`, `scroll_to_top`, `scroll_to_bottom`, `scroll_offset`, `history_len` | `shitty_vt_scroll`, `shitty_vt_scroll_to`, `shitty_vt_scroll_offset`, `shitty_vt_history_rows` — needs pg83/shitty#99 |
-| `retained_row_text`, `for_each_retained_row`, `retained_row_count` | `shitty_vt_row_cells`, `shitty_vt_total_rows` — needs pg83/shitty#100 |
+| `scroll`, `scroll_to`, `scroll_to_top`, `scroll_to_bottom`, `scroll_offset`, `history_len` | `shitty_vt_scroll`, `shitty_vt_scroll_to`, `shitty_vt_scroll_offset`, `shitty_vt_history_rows` |
+| `retained_row_text`, `for_each_retained_row`, `retained_row_count` | `shitty_vt_row_cells`, `shitty_vt_total_rows` |
 | `history_metrics` | `shitty_vt_memory_usage` — cells only, so report it as an estimate rather than exact |
 | `set_history_budget` | `shitty_vt_set_save_lines` — a row cap, so a byte budget has to be divided by the row cost the same call reports |
-| `alternate_scroll` | `shitty_vt_modes` bit 15 — needs pg83/shitty#101 |
+| `alternate_scroll` | `shitty_vt_modes` bit 15 |
 
-The visible grid and the scrollback are both covered once pg83/shitty#99 and
-pg83/shitty#100 land; until they do, the scrolling, row-reading and budgeting
-calls need a shitty checkout carrying them, and `Modes::alternate_scroll` needs
-pg83/shitty#101. With those, every method on Luvus's `VtEngine` has something
-behind it — though `history_metrics` and `set_history_budget` are honest partial
-matches rather than exact ones, as the table notes.
+Everything above is upstream: the facade covers the visible grid and the
+scrollback, and every method on that trait has something behind it. Two rows are
+honest partial matches rather than exact ones, as the table notes.
 
 ### Known quirks
 
-- The facade publishes an empty title at construction, so `title()` reads
-  `Some("")` before the application sets anything. Treat emptiness rather than
-  `None` as "no title yet". Reported as pg83/shitty#98.
+- `title()` is `None` until the application sets one — the facade stays silent
+  through construction. `Some("")` is therefore real activity: a reset the
+  application sends (RIS) publishes the cleared title. (This changed upstream in
+  pg83/shitty#98; earlier builds published an empty title at construction.)
 - `Cursor::row` is a row of the current view, so while scrolled into the
   scrollback it can be at or past the last row, meaning the cursor is off
   screen. Do not index a grid with it unchecked.
