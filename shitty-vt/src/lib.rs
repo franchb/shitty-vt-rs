@@ -134,6 +134,25 @@ impl Modes {
     mode!(mouse_sgr, SHITTY_VT_MODE_MOUSE_SGR);
 }
 
+/// What the terminal is spending on its grid and history.
+///
+/// Cells only. Grapheme clusters, hyperlinks and sixel patches live in a
+/// separate store this does not count, so treat it as the floor of the real
+/// cost rather than the whole of it.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct Memory {
+    /// Row slots actually backed by cells. The ring behind them is rounded to
+    /// a power of two, so this can exceed [`Memory::capacity_rows`]: it is
+    /// what the screen costs, not what it is allowed to hold.
+    pub allocated_rows: u32,
+    /// Rows the terminal will keep: the visible grid plus `save_lines`.
+    pub capacity_rows: u32,
+    pub columns: u32,
+    pub cell_size: u32,
+    /// `allocated_rows * columns * cell_size`.
+    pub cell_bytes: u64,
+}
+
 /// What the terminal reported through its callbacks since the last read.
 #[derive(Clone, Debug, Default)]
 struct Events {
@@ -337,6 +356,30 @@ impl Terminal {
     /// will reach.
     pub fn history_rows(&self) -> u32 {
         unsafe { sys::shitty_vt_history_rows(self.raw) }
+    }
+
+    /// What the grid and history currently cost.
+    pub fn memory_usage(&self) -> Memory {
+        let mut raw = sys::shitty_vt_memory::default();
+        // SAFETY: `raw` is a live, correctly typed output slot.
+        unsafe { sys::shitty_vt_memory_usage(self.raw, &mut raw) };
+        Memory {
+            allocated_rows: raw.allocated_rows,
+            capacity_rows: raw.capacity_rows,
+            columns: raw.columns,
+            cell_size: raw.cell_size,
+            cell_bytes: raw.cell_bytes,
+        }
+    }
+
+    /// Changes how many rows of scrollback the terminal keeps.
+    ///
+    /// Lowering it drops the oldest rows that no longer fit, at once rather
+    /// than as the history is overwritten, and releases what they held.
+    /// Raising it does not bring back rows already dropped. The visible grid
+    /// is untouched either way.
+    pub fn set_save_lines(&mut self, save_lines: u16) {
+        unsafe { sys::shitty_vt_set_save_lines(self.raw, save_lines) }
     }
 
     /// The cursor.

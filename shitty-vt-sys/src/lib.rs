@@ -57,6 +57,21 @@ pub struct shitty_vt_cell {
     pub width: u8,
 }
 
+/// What the terminal spends on its grid and history. Cells only: the
+/// grapheme, hyperlink and sixel stores are not counted.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct shitty_vt_memory {
+    /// Row slots actually backed by cells. The ring is rounded to a power of
+    /// two, so this can exceed `capacity_rows`.
+    pub allocated_rows: u32,
+    /// Rows the terminal will keep: rows + save_lines.
+    pub capacity_rows: u32,
+    pub columns: u32,
+    pub cell_size: u32,
+    pub cell_bytes: u64,
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct shitty_vt_cursor {
@@ -100,6 +115,8 @@ extern "C" {
     pub fn shitty_vt_scroll_to(vt: *mut shitty_vt, offset: u32) -> u32;
     pub fn shitty_vt_scroll_offset(vt: *const shitty_vt) -> u32;
     pub fn shitty_vt_history_rows(vt: *const shitty_vt) -> u32;
+    pub fn shitty_vt_memory_usage(vt: *const shitty_vt, out: *mut shitty_vt_memory);
+    pub fn shitty_vt_set_save_lines(vt: *mut shitty_vt, save_lines: u16);
     pub fn shitty_vt_total_rows(vt: *const shitty_vt) -> u32;
     pub fn shitty_vt_row_cells(
         vt: *mut shitty_vt,

@@ -44,8 +44,9 @@ own link line, to see what your host chose.
 
 Working: feed, resize, per-cell reads with grapheme clusters and resolved
 colours, cursor, mode flags, reply draining, scrollback view movement,
-row-addressed history reads, and the title, bell, damage, open-uri, clipboard
-and resize-request callbacks. Seventeen behaviour tests
+row-addressed history reads, memory accounting, a changeable history cap, and
+the title, bell, damage, open-uri, clipboard and resize-request callbacks.
+Twenty-one behaviour tests
 cover these, in the same cell-dump format the Luvus conformance tests use so
 the two engines can be diffed directly.
 
@@ -67,14 +68,15 @@ Written down because the gaps are the interesting part, not the matches.
 | `snapshot_ansi` | not exposed; synthesizable from cells and attributes |
 | `scroll`, `scroll_to`, `scroll_to_top`, `scroll_to_bottom`, `scroll_offset`, `history_len` | `shitty_vt_scroll`, `shitty_vt_scroll_to`, `shitty_vt_scroll_offset`, `shitty_vt_history_rows` — needs pg83/shitty#99 |
 | `retained_row_text`, `for_each_retained_row`, `retained_row_count` | `shitty_vt_row_cells`, `shitty_vt_total_rows` — needs pg83/shitty#100 |
-| `history_metrics`, `set_history_budget` | **missing** — no byte accounting, and `save_lines` is fixed at construction |
+| `history_metrics` | `shitty_vt_memory_usage` — cells only, so report it as an estimate rather than exact |
+| `set_history_budget` | `shitty_vt_set_save_lines` — a row cap, so a byte budget has to be divided by the row cost the same call reports |
 | `alternate_scroll` | **missing** — not among the mode bits |
 
 The visible grid and the scrollback are both covered once pg83/shitty#99 and
-pg83/shitty#100 land; until they do, the scrolling and row-reading calls need a
-shitty checkout carrying them. What remains missing is byte-level history
-accounting and changing `save_lines` after construction — a host can render,
-scroll and search a pane, but cannot budget its history in bytes.
+pg83/shitty#100 land; until they do, the scrolling, row-reading and budgeting
+calls need a shitty checkout carrying them. A host can render, scroll, search
+and budget a pane. The one thing still unreachable is `alternate_scroll`, which
+is a mode bit rather than a scrollback concern.
 
 ### Known quirks
 

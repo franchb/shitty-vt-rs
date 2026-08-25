@@ -228,3 +228,71 @@ fn history_rows_are_addressable_without_moving_the_view() {
     term.row_cells(11, |_, _, _| visited += 1);
     assert_eq!(visited, 0);
 }
+
+/// Feeds `count` numbered lines into a fresh terminal.
+fn filled(columns: u16, rows: u16, save_lines: u16, count: u32) -> Terminal {
+    let mut term = Terminal::new(columns, rows, save_lines);
+    for index in 0..count {
+        term.feed(format!("line{index}\r\n").as_bytes());
+    }
+    term
+}
+
+#[test]
+fn memory_reports_what_the_history_actually_costs() {
+    let empty = Terminal::new(20, 6, 100);
+    assert_eq!(empty.memory_usage().cell_bytes, 0);
+
+    let term = filled(20, 6, 100, 40);
+    let memory = term.memory_usage();
+    assert!(memory.allocated_rows > 0);
+    assert_eq!(memory.columns, 20);
+    assert_eq!(
+        memory.cell_bytes,
+        u64::from(memory.allocated_rows) * 20 * u64::from(memory.cell_size),
+    );
+    // The cap is what it may hold, not what it holds.
+    assert_eq!(memory.capacity_rows, 6 + 100);
+}
+
+#[test]
+fn lowering_the_cap_drops_the_oldest_rows_and_releases_them() {
+    let mut term = filled(20, 6, 100, 40);
+    let before = term.memory_usage();
+    assert_eq!(term.history_rows(), 35);
+
+    term.set_save_lines(5);
+    assert_eq!(term.history_rows(), 5);
+    assert_eq!(term.memory_usage().capacity_rows, 6 + 5);
+    assert!(
+        term.memory_usage().cell_bytes < before.cell_bytes,
+        "dropped rows should be released"
+    );
+
+    // The survivors are the newest five, not the oldest.
+    let mut oldest = String::new();
+    term.row_cells(0, |_, _, cell| oldest.push_str(&cell.text()));
+    assert_eq!(oldest.trim_end(), "line30");
+}
+
+#[test]
+fn raising_the_cap_does_not_resurrect_dropped_rows() {
+    let mut term = filled(20, 6, 5, 40);
+    assert_eq!(term.history_rows(), 5);
+    term.set_save_lines(100);
+    assert_eq!(term.memory_usage().capacity_rows, 6 + 100);
+    assert_eq!(term.history_rows(), 5, "what was dropped stays dropped");
+}
+
+#[test]
+fn the_visible_grid_survives_a_cap_change() {
+    let visible = |term: &Terminal| {
+        let mut rows = vec![String::new(); 6];
+        term.for_each_cell(|row, _, cell| rows[row as usize].push_str(&cell.text()));
+        rows
+    };
+    let mut term = filled(20, 6, 100, 40);
+    let before = visible(&term);
+    term.set_save_lines(5);
+    assert_eq!(visible(&term), before);
+}
