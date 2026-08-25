@@ -150,3 +150,48 @@ fn resize_reflows_the_grid() {
         "reflow should rejoin the line"
     );
 }
+
+fn lines(term: &Terminal, rows: u16) -> Vec<String> {
+    let mut out = vec![String::new(); rows as usize];
+    term.for_each_cell(|row, _, cell| out[row as usize].push_str(&cell.text()));
+    out.into_iter().map(|l| l.trim_end().to_string()).collect()
+}
+
+#[test]
+fn history_holds_what_scrolled_off_the_grid() {
+    let mut term = Terminal::new(20, 6, 100);
+    for index in 0..10 {
+        term.feed(format!("line{index}\r\n").as_bytes());
+    }
+    // Ten lines plus the trailing newline is eleven rows over a six-row
+    // grid, so five went into the history.
+    assert_eq!(term.history_rows(), 5);
+    assert_eq!(term.scroll_offset(), 0);
+    assert_eq!(lines(&term, 6)[0], "line5");
+}
+
+#[test]
+fn scrolling_moves_the_view_and_clamps() {
+    let mut term = Terminal::new(20, 6, 100);
+    for index in 0..10 {
+        term.feed(format!("line{index}\r\n").as_bytes());
+    }
+    assert_eq!(term.scroll(2), 2);
+    assert_eq!(lines(&term, 6)[0], "line3");
+
+    assert_eq!(term.scroll(99), 5, "clamps to the retained history");
+    assert_eq!(lines(&term, 6)[0], "line0");
+
+    assert_eq!(term.scroll_to(0), 0, "back to live");
+    assert_eq!(lines(&term, 6)[0], "line5");
+}
+
+#[test]
+fn a_terminal_keeping_no_lines_has_nothing_to_scroll() {
+    let mut term = Terminal::new(20, 6, 0);
+    for index in 0..10 {
+        term.feed(format!("line{index}\r\n").as_bytes());
+    }
+    assert_eq!(term.history_rows(), 0);
+    assert_eq!(term.scroll(5), 0);
+}

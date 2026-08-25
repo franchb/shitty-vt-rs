@@ -96,6 +96,10 @@ extern "C" {
     pub fn shitty_vt_resize(vt: *mut shitty_vt, columns: u16, rows: u16);
     pub fn shitty_vt_take_replies(vt: *mut shitty_vt, out: *mut u8, cap: usize) -> usize;
     pub fn shitty_vt_each_cell(vt: *mut shitty_vt, f: shitty_vt_cell_fn, user: *mut c_void);
+    pub fn shitty_vt_scroll(vt: *mut shitty_vt, rows: i32) -> u32;
+    pub fn shitty_vt_scroll_to(vt: *mut shitty_vt, offset: u32) -> u32;
+    pub fn shitty_vt_scroll_offset(vt: *const shitty_vt) -> u32;
+    pub fn shitty_vt_history_rows(vt: *const shitty_vt) -> u32;
     pub fn shitty_vt_cursor_state(vt: *const shitty_vt) -> shitty_vt_cursor;
     pub fn shitty_vt_modes(vt: *const shitty_vt) -> u32;
 }

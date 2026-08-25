@@ -43,8 +43,9 @@ own link line, to see what your host chose.
 ## Status
 
 Working: feed, resize, per-cell reads with grapheme clusters and resolved
-colours, cursor, mode flags, reply draining, and the title, bell, damage,
-open-uri, clipboard and resize-request callbacks. Thirteen behaviour tests
+colours, cursor, mode flags, reply draining, scrollback view movement, and the
+title, bell, damage, open-uri, clipboard and resize-request callbacks.
+Sixteen behaviour tests
 cover these, in the same cell-dump format the Luvus conformance tests use so
 the two engines can be diffed directly.
 
@@ -64,19 +65,25 @@ Written down because the gaps are the interesting part, not the matches.
 | `visible_rows`, `detection_text`, `codex_composer_region` | derivable from cells |
 | `output_generation`, `finish_output_batch` | no equivalent needed; track locally |
 | `snapshot_ansi` | not exposed; synthesizable from cells and attributes |
-| `set_history_budget` | **missing** — `save_lines` is fixed at construction |
-| `scroll`, `scroll_to`, `scroll_to_top`, `scroll_to_bottom`, `scroll_offset`, `history_len`, `history_metrics`, `retained_row_count`, `retained_row_text`, `for_each_retained_row` | **missing** — no scrollback access |
+| `scroll`, `scroll_to`, `scroll_to_top`, `scroll_to_bottom`, `scroll_offset`, `history_len` | `shitty_vt_scroll`, `shitty_vt_scroll_to`, `shitty_vt_scroll_offset`, `shitty_vt_history_rows` — needs pg83/shitty#99 |
+| `retained_row_text`, `for_each_retained_row`, `retained_row_count` | **missing** — history is reachable only by moving the view |
+| `history_metrics`, `set_history_budget` | **missing** — no byte accounting, and `save_lines` is fixed at construction |
 | `alternate_scroll` | **missing** — not among the mode bits |
 
-So the facade covers the visible grid completely and the scrollback not at all.
-Upstream has invited PRs extending it, and scrollback access is the piece that
-has to land before a `VtEngine` implementation could be more than a toy.
+The visible grid is fully covered. Scrolling arrives with pg83/shitty#99; until
+that merges, `Terminal::scroll` and friends need a shitty checkout carrying it.
+What remains missing is row-addressed history reads and byte-level history
+accounting — enough for a renderer to scroll a pane, not yet enough for a host
+that wants to search the scrollback or budget it in bytes.
 
 ### Known quirks
 
 - The facade publishes an empty title at construction, so `title()` reads
   `Some("")` before the application sets anything. Treat emptiness rather than
-  `None` as "no title yet".
+  `None` as "no title yet". Reported as pg83/shitty#98.
+- `Cursor::row` is a row of the current view, so while scrolled into the
+  scrollback it can be at or past the last row, meaning the cursor is off
+  screen. Do not index a grid with it unchecked.
 - Emoji width differs from `alacritty_terminal`: a ZWJ sequence or an
   emoji-modifier sequence is one width-2 cell here and two wide cells there,
   and `U+2764 U+FE0F` is wide here and narrow there. UTS #51 favours this

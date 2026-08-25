@@ -292,6 +292,34 @@ impl Terminal {
         }
     }
 
+    /// Moves the view through the scrollback: positive scrolls up into
+    /// history, negative back toward the live bottom. Clamps to the retained
+    /// history and is inert on the alternate screen. Returns the new offset.
+    pub fn scroll(&mut self, rows: i32) -> u32 {
+        unsafe { sys::shitty_vt_scroll(self.raw, rows) }
+    }
+
+    /// Places the view so `offset` rows of history sit above it; 0 is live.
+    pub fn scroll_to(&mut self, offset: u32) -> u32 {
+        unsafe { sys::shitty_vt_scroll_to(self.raw, offset) }
+    }
+
+    /// Rows of history above the live bottom the view currently shows.
+    pub fn scroll_offset(&self) -> u32 {
+        unsafe { sys::shitty_vt_scroll_offset(self.raw) }
+    }
+
+    /// Rows of scrollback retained; the largest offset [`Terminal::scroll_to`]
+    /// will reach.
+    pub fn history_rows(&self) -> u32 {
+        unsafe { sys::shitty_vt_history_rows(self.raw) }
+    }
+
+    /// The cursor.
+    ///
+    /// [`Cursor::row`] is a row of the *current view*, so while the view sits
+    /// in the scrollback it can be at or past the last row — meaning the
+    /// cursor is off screen and nothing should be drawn for it.
     pub fn cursor(&self) -> Cursor {
         // SAFETY: `raw` is valid for the terminal's lifetime.
         let cursor = unsafe { sys::shitty_vt_cursor_state(self.raw) };
