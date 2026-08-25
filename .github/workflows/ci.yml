@@ -22,6 +22,10 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Install the toolchain
+        # The build probes every dependency up front, GUI ones included, so
+        # the list matches what shitty's own Fedora job installs even though
+        # only the embed targets are built here. Retried because the Fedora
+        # mirrors fail mid-download often enough to matter.
         run: |
           for attempt in 1 2 3; do
             if dnf -y --setopt=install_weak_deps=False \
@@ -29,9 +33,12 @@ jobs:
                 --setopt=fastestmirror=True --setopt=zchunk=False \
                 install \
                 gcc-c++ make git python3 perl pkgconf-pkg-config diffutils \
-                binutils ragel cargo rustfmt clippy \
+                binutils ragel glslang librsvg2-tools \
+                cargo rustfmt clippy \
                 freetype-devel fontconfig-devel harfbuzz-devel \
-                libxkbcommon-devel; then
+                libxkbcommon-devel \
+                vulkan-headers vulkan-loader-devel \
+                wayland-devel wayland-protocols-devel; then
               exit 0
             fi
             echo "dnf attempt $attempt failed, retrying"
