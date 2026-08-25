@@ -1,5 +1,7 @@
 # shitty-vt-rs
 
+[![ci](https://github.com/franchb/shitty-vt-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/franchb/shitty-vt-rs/actions/workflows/ci.yml)
+
 Rust bindings to [shitty](https://github.com/pg83/shitty)'s embeddable VT core.
 
 - `shitty-vt-sys` — raw FFI declarations, transcribed by hand from
@@ -37,8 +39,23 @@ cargo test
 `SHITTY_VT_LINK_LIBS` exists because the static archive cannot bundle the
 system libraries libstd probed for, and which those are varies by host. On a
 box with `rapidhash.h` there is no `xxhash` to name; on one without `liburing`
-there is no `uring`. Check `readelf -d` on the shared library, or the build's
-own link line, to see what your host chose.
+there is no `uring`. Until pg83/shitty#102 gives this an interface, read them
+back off the shared library:
+
+```sh
+readelf -d libshitty_vt.so \
+  | sed -n 's/.*NEEDED.*\[lib\(.*\)\.so.*/\1/p' \
+  | grep -vxE 'c|m|dl|rt|pthread|gcc_s|stdc\+\+'
+```
+
+which is what CI does.
+
+## CI
+
+The workflow builds shitty from `master` in its own nix dev shell and runs the
+tests against both link modes. It also runs daily, because upstream is the
+moving part: the facade's contract has already changed under this crate once,
+and a scheduled run finds that before a user does.
 
 ## Status
 

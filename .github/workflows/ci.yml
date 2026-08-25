@@ -1,0 +1,70 @@
+name: ci
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  schedule:
+    # Upstream is the moving part. The facade's contract can change under
+    # this crate between releases - it already has once - so check daily
+    # rather than finding out when someone builds against a new shitty.
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: build the facade, test both link modes
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the bindings
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check out shitty
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: pg83/shitty
+          ref: master
+          path: shitty
+
+      # The core is C++26; the flake's dev shell is the supported way to
+      # get a toolchain that can build it.
+      - name: Install nix
+        uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          enable_kvm: false
+
+      - name: Record which shitty this is
+        run: git -C shitty log --oneline -1
+
+      - name: Build libshitty_vt
+        working-directory: shitty
+        run: nix develop --command ./build a so
+
+      # The static archive cannot carry the system libraries libstd probed
+      # for, and which those are varies by host, so read them back off the
+      # shared object rather than guessing. See pg83/shitty#102.
+      - name: Derive the static link libraries
+        run: |
+          libs=$(readelf -d shitty/.build/libshitty_vt.so \
+            | sed -n 's/.*NEEDED.*\[lib\(.*\)\.so.*/\1/p' \
+            | grep -vxE 'c|m|dl|rt|pthread|gcc_s|stdc\+\+' \
+            | paste -sd,)
+          echo "derived: ${libs:-none}"
+          echo "SHITTY_VT_LINK_LIBS=$libs" >> "$GITHUB_ENV"
+          echo "SHITTY_VT_LIB_DIR=$PWD/shitty/.build" >> "$GITHUB_ENV"
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Test against the shared library
+        run: cargo test --workspace
+        env:
+          LD_LIBRARY_PATH: ${{ github.workspace }}/shitty/.build
+
+      - name: Test against the static archive
+        run: cargo test --workspace
+        env:
+          SHITTY_VT_STATIC: "1"
