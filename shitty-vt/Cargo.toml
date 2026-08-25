@@ -1,0 +1,11 @@
+[package]
+name = "shitty-vt"
+description = "Safe Rust wrapper over shitty's embeddable VT core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+shitty-vt-sys = { path = "../shitty-vt-sys", version = "0.1.0" }

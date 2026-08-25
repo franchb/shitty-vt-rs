@@ -1,0 +1,9 @@
+[package]
+name = "shitty-vt-sys"
+description = "Raw FFI bindings to shitty's C VT-core facade (libshitty_vt)"
+links = "shitty_vt"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
