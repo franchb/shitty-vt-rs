@@ -176,7 +176,9 @@ unsafe extern "C" fn on_damaged(user: *mut c_void) {
 
 unsafe extern "C" fn on_open_uri(user: *mut c_void, bytes: *const u8, len: usize) {
     let events = &mut *(user as *mut Events);
-    events.open_uri.push(std::slice::from_raw_parts(bytes, len).to_vec());
+    events
+        .open_uri
+        .push(std::slice::from_raw_parts(bytes, len).to_vec());
 }
 
 unsafe extern "C" fn on_clipboard(user: *mut c_void, which: c_int, bytes: *const u8, len: usize) {

@@ -92,7 +92,10 @@ fn device_attributes_query_produces_a_reply() {
     assert!(term.take_replies().is_empty());
     term.feed(b"\x1b[c");
     let reply = term.take_replies();
-    assert!(reply.starts_with(b"\x1b["), "unexpected DA reply: {reply:?}");
+    assert!(
+        reply.starts_with(b"\x1b["),
+        "unexpected DA reply: {reply:?}"
+    );
     assert!(term.take_replies().is_empty(), "replies must drain once");
 }
 
@@ -141,5 +144,9 @@ fn resize_reflows_the_grid() {
             first.push_str(&cell.text());
         }
     });
-    assert_eq!(first.trim_end(), "abcdefgh", "reflow should rejoin the line");
+    assert_eq!(
+        first.trim_end(),
+        "abcdefgh",
+        "reflow should rejoin the line"
+    );
 }
