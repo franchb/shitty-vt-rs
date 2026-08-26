@@ -58,23 +58,19 @@ jobs:
       - name: Record which shitty this is
         run: git config --global --add safe.directory "$PWD/shitty" && git -C shitty log --oneline -1
 
-      - name: Build libshitty_vt
-        working-directory: shitty
-        run: ./build a so
-
-      # The static archive cannot carry the system libraries libstd probed
-      # for, and which those are varies by host - this job and a Fedora
-      # workstation already disagree - so read them back off the shared
-      # object rather than guessing. See pg83/shitty#102.
-      - name: Derive the static link libraries
+      # The release tree carries a pkg-config file whose Libs.private
+      # records what this host's probes chose, so nothing here has to know
+      # or guess which system libraries the archive needs.
+      - name: Package libshitty_vt
         run: |
-          libs=$(readelf -d shitty/.build/libshitty_vt.so \
-            | sed -n 's/.*NEEDED.*\[lib\(.*\)\.so.*/\1/p' \
-            | grep -vxE 'c|m|dl|rt|pthread|gcc_s|stdc\+\+' \
-            | paste -sd,)
-          echo "derived: ${libs:-none}"
-          echo "SHITTY_VT_LINK_LIBS=$libs" >> "$GITHUB_ENV"
-          echo "SHITTY_VT_LIB_DIR=$PWD/shitty/.build" >> "$GITHUB_ENV"
+          (cd shitty && ./build tgz)
+          mkdir -p release
+          tar xzf shitty/.build/shitty_vt.tgz -C release --strip-components=1
+          echo "PKG_CONFIG_PATH=$PWD/release/lib/pkgconfig" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$PWD/release/lib" >> "$GITHUB_ENV"
+          pkg-config --static --libs shitty_vt || true
+        env:
+          PKG_CONFIG_PATH: ""
 
       - name: Format
         run: cargo fmt --all --check
@@ -84,8 +80,6 @@ jobs:
 
       - name: Test against the shared library
         run: cargo test --workspace
-        env:
-          LD_LIBRARY_PATH: ${{ github.workspace }}/shitty/.build
 
       - name: Test against the static archive
         run: cargo test --workspace

@@ -1,11 +1,13 @@
 //! Locates libshitty_vt and emits its link line.
 //!
-//! Shitty builds the facade with `./build a` (static) or `./build so`
-//! (shared); either lands in the build root. Point `SHITTY_VT_LIB_DIR` at it.
+//! Preferred: a release tree from shitty's `./build tgz`, which carries a
+//! pkg-config file whose `Libs.private` records exactly what the build
+//! probed for on that host. Point `PKG_CONFIG_PATH` at its `lib/pkgconfig`.
 //!
-//! The static archive cannot bundle the system libraries libstd probed for
-//! (xxhash/atomic/uring vary by host), so a static link needs those named
-//! explicitly via `SHITTY_VT_LINK_LIBS`.
+//! Fallback: `SHITTY_VT_LIB_DIR` pointing straight at a build directory, for
+//! working against a checkout without packaging it first. That path cannot
+//! know the probed backends, so a static link there needs them named through
+//! `SHITTY_VT_LINK_LIBS`.
 
 use std::env;
 
@@ -18,24 +20,51 @@ fn main() {
         println!("cargo:rerun-if-env-changed={var}");
     }
 
-    let Ok(lib_dir) = env::var("SHITTY_VT_LIB_DIR") else {
-        panic!(
-            "SHITTY_VT_LIB_DIR is unset.\n\
-             Build the facade in a shitty checkout (`./build a` or `./build so`)\n\
-             and point SHITTY_VT_LIB_DIR at its .build directory."
-        );
-    };
-    println!("cargo:rustc-link-search=native={lib_dir}");
-
     let static_link = env::var("SHITTY_VT_STATIC").is_ok_and(|v| v != "0");
+
+    if let Ok(lib_dir) = env::var("SHITTY_VT_LIB_DIR") {
+        link_from_directory(&lib_dir, static_link);
+        return;
+    }
+
+    match pkg_config::Config::new()
+        .statik(static_link)
+        .probe("shitty_vt")
+    {
+        Ok(_) => {
+            // The .pc deliberately does not guess between libstdc++ and
+            // libc++, so a static link still needs a C++ runtime named here.
+            if static_link {
+                println!("cargo:rustc-link-lib=dylib={}", cxx_runtime());
+            }
+        }
+        Err(error) => panic!(
+            "could not find shitty_vt.
+
+Build a release tree in a shitty checkout and point pkg-config at it:
+
+    ./build tgz
+    tar xzf .build/shitty_vt.tgz
+    export PKG_CONFIG_PATH=$PWD/shitty_vt-<version>/lib/pkgconfig
+
+Or set SHITTY_VT_LIB_DIR to a build directory directly.
+
+pkg-config said: {error}"
+        ),
+    }
+}
+
+/// Links against a build directory, where nothing records what the build
+/// probed for.
+fn link_from_directory(lib_dir: &str, static_link: bool) {
+    println!("cargo:rustc-link-search=native={lib_dir}");
     if static_link {
         println!("cargo:rustc-link-lib=static=shitty_vt");
-        // The C++ core needs its runtime; nothing else pulls it in.
-        println!("cargo:rustc-link-lib=dylib=stdc++");
+        println!("cargo:rustc-link-lib=dylib={}", cxx_runtime());
         for lib in env::var("SHITTY_VT_LINK_LIBS")
             .unwrap_or_default()
             .split(',')
-            .filter(|l| !l.is_empty())
+            .filter(|lib| !lib.is_empty())
         {
             println!("cargo:rustc-link-lib=dylib={lib}");
         }
@@ -43,5 +72,13 @@ fn main() {
         println!("cargo:rustc-link-lib=dylib=shitty_vt");
         // Keep the .so findable at run time without an install step.
         println!("cargo:rustc-link-arg=-Wl,-rpath,{lib_dir}");
+    }
+}
+
+fn cxx_runtime() -> &'static str {
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
+        "c++"
+    } else {
+        "stdc++"
     }
 }
