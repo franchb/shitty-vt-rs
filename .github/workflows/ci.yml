@@ -68,9 +68,10 @@ jobs:
           tar xzf shitty/.build/shitty_vt.tgz -C release --strip-components=1
           echo "PKG_CONFIG_PATH=$PWD/release/lib/pkgconfig" >> "$GITHUB_ENV"
           echo "LD_LIBRARY_PATH=$PWD/release/lib" >> "$GITHUB_ENV"
-          pkg-config --static --libs shitty_vt || true
-        env:
-          PKG_CONFIG_PATH: ""
+          # Log the resolved line: the exports above only reach later
+          # steps, so name the path explicitly here.
+          PKG_CONFIG_PATH=$PWD/release/lib/pkgconfig \
+            pkg-config --static --libs shitty_vt
 
       - name: Format
         run: cargo fmt --all --check
