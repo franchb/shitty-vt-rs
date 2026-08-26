@@ -54,7 +54,7 @@ Working: feed, resize, per-cell reads with grapheme clusters and resolved
 colours, cursor, mode flags, reply draining, scrollback view movement,
 row-addressed history reads, memory accounting, a changeable history cap, and
 the title, bell, damage, open-uri, clipboard and resize-request callbacks.
-Twenty-three behaviour tests
+Twenty-five behaviour tests
 cover these, in the same cell-dump format the Luvus conformance tests use so
 the two engines can be diffed directly.
 

@@ -326,3 +326,52 @@ fn alternate_scroll_is_reported_separately_from_the_alternate_screen() {
     assert!(!term.modes().alternate_scroll());
     assert!(term.modes().alt_screen(), "clearing 1007 leaves 1049 alone");
 }
+
+#[test]
+fn callbacks_and_teardown_survive_repetition() {
+    // The callback state lives in its own allocation that the terminal
+    // writes through for its whole life, and is released after it. Churn
+    // both, firing every callback that a byte stream can, so a mistake in
+    // that ordering has somewhere to show itself.
+    for round in 0..64 {
+        let mut term = Terminal::new(20, 4, 16);
+        term.feed(b"\x1b]0;first\x07\x07");
+        term.feed(b"\x1b]8;;https://example.invalid\x07link\x1b]8;;\x07");
+        term.feed(b"\x1b]52;c;aGk=\x07");
+        term.feed(b"\x1b[8;10;40t");
+        for line in 0..round {
+            term.feed(format!("line{line}\r\n").as_bytes());
+        }
+
+        assert_eq!(term.title().as_deref(), Some("first"));
+        assert!(term.bells() >= 1);
+        let _ = term.damaged();
+        term.clear_damage();
+        let _ = term.take_clipboard_writes();
+        let _ = term.take_open_uris();
+        let _ = term.take_resize_request();
+        // Reading the grid runs the terminal again, which may report damage
+        // through the same state these accessors just read.
+        term.for_each_cell(|_, _, cell| {
+            let _ = cell.text();
+        });
+        assert_eq!(term.title().as_deref(), Some("first"));
+    }
+}
+
+#[test]
+fn a_terminal_can_be_moved_between_threads() {
+    // `Send` is claimed on the strength of the instance being self
+    // contained; exercise it rather than only asserting it in a comment.
+    let mut term = Terminal::new(20, 4, 8);
+    term.feed(b"\x1b]0;before\x07one\r\n");
+    let term = std::thread::spawn(move || {
+        let mut term = term;
+        term.feed(b"two\r\n");
+        assert_eq!(term.title().as_deref(), Some("before"));
+        term
+    })
+    .join()
+    .expect("thread");
+    assert_eq!(term.title().as_deref(), Some("before"));
+}

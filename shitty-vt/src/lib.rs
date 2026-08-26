@@ -14,6 +14,7 @@
 //! });
 //! ```
 
+use std::cell::UnsafeCell;
 use std::ffi::{c_int, c_void};
 
 use shitty_vt_sys as sys;
@@ -208,11 +209,14 @@ unsafe extern "C" fn visit<F: FnMut(u16, u16, Cell<'_>)>(
 /// An embedded terminal.
 pub struct Terminal {
     raw: *mut sys::shitty_vt,
-    // Boxed for a stable address: the terminal retains the pointer to the
-    // callbacks struct, and the callbacks carry a pointer to `events`.
-    // Declared after `raw` only for clarity; drop order is handled explicitly.
-    _callbacks: Box<sys::shitty_vt_callbacks>,
-    events: Box<Events>,
+    // Raw pointers rather than `Box` fields, deliberately. The terminal
+    // keeps the address of both for its whole life and writes through the
+    // second from its callbacks; a `Box` field would be reborrowed by every
+    // `&mut self` method, invalidating the pointer C still holds. The
+    // `UnsafeCell` is what makes those writes legal while a `&self` method
+    // is reading, since a callback can fire from inside a C call.
+    callbacks: *mut sys::shitty_vt_callbacks,
+    events: *mut UnsafeCell<Events>,
 }
 
 // The facade hands out one opaque instance with no shared global state, and
@@ -256,9 +260,11 @@ impl Terminal {
     /// Builds a terminal with `columns` x `rows` visible and `save_lines`
     /// rows of scrollback retained.
     pub fn new(columns: u16, rows: u16, save_lines: u16) -> Terminal {
-        let mut events = Box::new(Events::default());
-        let user = (&mut *events) as *mut Events as *mut c_void;
-        let callbacks = Box::new(sys::shitty_vt_callbacks {
+        let events: *mut UnsafeCell<Events> =
+            Box::into_raw(Box::new(UnsafeCell::new(Events::default())));
+        // SAFETY: `events` was just allocated and is not aliased yet.
+        let user = unsafe { (*events).get() } as *mut c_void;
+        let callbacks = Box::into_raw(Box::new(sys::shitty_vt_callbacks {
             user,
             title_changed: Some(on_title),
             bell: Some(on_bell),
@@ -266,23 +272,35 @@ impl Terminal {
             open_uri: Some(on_open_uri),
             clipboard_set: Some(on_clipboard),
             resize_request: Some(on_resize_request),
-        });
-        // SAFETY: `callbacks` outlives the terminal - both are owned here and
-        // the terminal is freed first in `Drop`.
-        let raw = unsafe {
-            sys::shitty_vt_new(
-                columns.max(1),
-                rows.max(1),
-                save_lines,
-                &*callbacks as *const _,
-            )
-        };
-        assert!(!raw.is_null(), "shitty_vt_new returned null");
+        }));
+        // SAFETY: both allocations outlive the terminal - `Drop` frees it
+        // first and them after.
+        let raw = unsafe { sys::shitty_vt_new(columns.max(1), rows.max(1), save_lines, callbacks) };
+        if raw.is_null() {
+            // SAFETY: the terminal never took ownership, so these are still
+            // ours to release.
+            unsafe {
+                drop(Box::from_raw(callbacks));
+                drop(Box::from_raw(events));
+            }
+            panic!("shitty_vt_new returned null");
+        }
         Terminal {
             raw,
-            _callbacks: callbacks,
+            callbacks,
             events,
         }
+    }
+
+    /// The callback state.
+    ///
+    /// # Safety
+    /// The returned pointer is valid for the terminal's life. Do not hold a
+    /// reference derived from it across a call into C, which may write
+    /// through the same pointer from a callback.
+    fn events(&self) -> *mut Events {
+        // SAFETY: `events` is live for as long as `self` is.
+        unsafe { (*self.events).get() }
     }
 
     /// Parses `bytes` into the grid.
@@ -415,7 +433,8 @@ impl Terminal {
     /// `Some("")` is therefore real activity rather than a starting state —
     /// a reset the application sends (RIS) publishes the cleared title.
     pub fn title(&self) -> Option<String> {
-        self.events
+        // SAFETY: no call into C happens while this reference is alive.
+        unsafe { &*self.events() }
             .title
             .as_ref()
             .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
@@ -423,39 +442,50 @@ impl Terminal {
 
     /// Number of bells since the terminal was created.
     pub fn bells(&self) -> u64 {
-        self.events.bells
+        // SAFETY: as in `title`.
+        unsafe { (*self.events()).bells }
     }
 
     /// Whether the presentation moved since [`Terminal::clear_damage`].
     pub fn damaged(&self) -> bool {
-        self.events.damaged
+        // SAFETY: as in `title`.
+        unsafe { (*self.events()).damaged }
     }
 
     pub fn clear_damage(&mut self) {
-        self.events.damaged = false;
+        // SAFETY: as in `title`.
+        unsafe { (*self.events()).damaged = false }
     }
 
     /// The grid size the application last asked for through XTWINOPS, if any.
     /// Answering it is the embedder's choice.
     pub fn take_resize_request(&mut self) -> Option<(u16, u16)> {
-        self.events.resize_request.take()
+        // SAFETY: as in `title`.
+        unsafe { (*self.events()).resize_request.take() }
     }
 
     /// OSC 52 selections the application set: `(0 primary | 1 clipboard, bytes)`.
     pub fn take_clipboard_writes(&mut self) -> Vec<(i32, Vec<u8>)> {
-        std::mem::take(&mut self.events.clipboard)
+        // SAFETY: as in `title`.
+        unsafe { std::mem::take(&mut (*self.events()).clipboard) }
     }
 
     /// Hyperlinks the application asked to open.
     pub fn take_open_uris(&mut self) -> Vec<Vec<u8>> {
-        std::mem::take(&mut self.events.open_uri)
+        // SAFETY: as in `title`.
+        unsafe { std::mem::take(&mut (*self.events()).open_uri) }
     }
 }
 
 impl Drop for Terminal {
     fn drop(&mut self) {
-        // The terminal holds a pointer into `_callbacks` and `events`, so it
-        // has to go first; the boxes are dropped after this returns.
-        unsafe { sys::shitty_vt_free(self.raw) }
+        // Order matters: the terminal holds both pointers, so it goes first
+        // and the allocations it was pointing at go after.
+        // SAFETY: each is owned by this `Terminal` and freed exactly once.
+        unsafe {
+            sys::shitty_vt_free(self.raw);
+            drop(Box::from_raw(self.callbacks));
+            drop(Box::from_raw(self.events));
+        }
     }
 }
