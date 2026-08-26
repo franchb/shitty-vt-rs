@@ -8,5 +8,13 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+keywords = ["terminal", "vt", "ffi", "bindings", "shitty"]
+categories = ["external-ffi-bindings", "command-line-interface"]
+readme = "../README.md"
+
+[package.metadata.docs.rs]
+# No libshitty_vt on docs.rs; build.rs skips linking when DOCS_RS is set.
+all-features = true
+
 [build-dependencies]
 pkg-config = "0.3"

@@ -20,6 +20,13 @@ fn main() {
         println!("cargo:rerun-if-env-changed={var}");
     }
 
+    // docs.rs has no libshitty_vt and does not link anything: rustdoc only
+    // needs the crate to compile. Emitting no link line keeps the docs
+    // build from failing on a library it could never have.
+    if env::var_os("DOCS_RS").is_some() {
+        return;
+    }
+
     let static_link = env::var("SHITTY_VT_STATIC").is_ok_and(|v| v != "0");
 
     if let Ok(lib_dir) = env::var("SHITTY_VT_LIB_DIR") {

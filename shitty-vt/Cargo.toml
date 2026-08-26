@@ -7,5 +7,12 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+keywords = ["terminal", "vt", "emulator", "ansi", "shitty"]
+categories = ["api-bindings", "command-line-interface"]
+readme = "../README.md"
+
+[package.metadata.docs.rs]
+all-features = true
+
 [dependencies]
 shitty-vt-sys = { path = "../shitty-vt-sys", version = "0.1.0" }
