@@ -1,12 +1,24 @@
 # shitty-vt-rs
 
 [![ci](https://github.com/franchb/shitty-vt-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/franchb/shitty-vt-rs/actions/workflows/ci.yml)
+[![crates.io](https://img.shields.io/crates/v/shitty-vt.svg)](https://crates.io/crates/shitty-vt)
+[![docs.rs](https://img.shields.io/docsrs/shitty-vt)](https://docs.rs/shitty-vt)
 
 Rust bindings to [shitty](https://github.com/pg83/shitty)'s embeddable VT core.
 
-- `shitty-vt-sys` — raw FFI declarations, transcribed by hand from
-  `lib/embed/shitty_vt.h`. No bindgen, so no libclang on consumers.
-- `shitty-vt` — a safe wrapper: feed bytes, read a grid.
+- [`shitty-vt`](https://crates.io/crates/shitty-vt) — a safe wrapper: feed
+  bytes, read a grid.
+- [`shitty-vt-sys`](https://crates.io/crates/shitty-vt-sys) — raw FFI
+  declarations, transcribed by hand from `lib/embed/shitty_vt.h`. No bindgen,
+  so no libclang on consumers.
+
+```toml
+[dependencies]
+shitty-vt = "0.1"
+```
+
+The library itself is not on crates.io and never will be — it is C++, built
+from a shitty checkout and found through pkg-config. See Building.
 
 Neither crate depends on any terminal application. The core owns no pty and
 spawns no child; replies it generates queue until the embedder drains them.
