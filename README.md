@@ -60,6 +60,25 @@ Nothing there records what the build probed for, so a static link also needs
 `SHITTY_VT_LINK_LIBS=xxhash,atomic,uring` — whatever your host chose. Prefer
 the tarball; this path exists for iterating on a checkout.
 
+### If the build fails
+
+Adding the dependency is not enough on its own — there is a C library to build,
+and without it `cargo build` stops in the build script:
+
+```text
+error: failed to run custom build command for `shitty-vt-sys v0.1.0`
+
+  could not find shitty_vt.
+
+  Build a release tree in a shitty checkout and point pkg-config at it:
+  ...
+  The system library `shitty_vt` required by crate `shitty-vt-sys` was not found.
+```
+
+That is the expected failure when `PKG_CONFIG_PATH` does not name a directory
+holding `shitty_vt.pc`, not a broken release. Follow the steps above, or set
+`SHITTY_VT_LIB_DIR`; the message repeats both.
+
 ## Status
 
 Working: feed, resize, per-cell reads with grapheme clusters and resolved
