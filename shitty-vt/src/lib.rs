@@ -5,6 +5,13 @@
 //! drains them, and it is the caller's job to forward those to whatever is on
 //! the other end.
 //!
+//! Input goes the same way. Report events - [`Terminal::key`],
+//! [`Terminal::text`], the mouse entry points, [`Terminal::paste`] - and the
+//! terminal encodes them by whatever protocol the application negotiated,
+//! queueing the bytes in the same reply buffer. The embedder never encodes,
+//! because the state that decides the encoding (kitty flags, modifyOtherKeys,
+//! the mouse modes) lives inside the terminal.
+//!
 //! ```no_run
 //! # use shitty_vt::Terminal;
 //! let mut term = Terminal::new(80, 24, 1000);
@@ -159,6 +166,305 @@ pub struct Memory {
     pub cell_size: u32,
     /// `allocated_rows * columns * cell_size`.
     pub cell_bytes: u64,
+}
+
+/// A physical key, mirroring the facade's pinned codes.
+///
+/// [`Key::Printable`] covers every character key: which character it is
+/// travels in the event's codepoints, not in the code.
+#[repr(u16)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+#[non_exhaustive]
+pub enum Key {
+    Unknown = 0,
+    Printable,
+    Space,
+    Escape,
+    Enter,
+    Backspace,
+    Tab,
+    Insert,
+    Delete,
+    Home,
+    End,
+    Up,
+    Down,
+    Left,
+    Right,
+    PageUp,
+    PageDown,
+    Clear,
+    F1,
+    F2,
+    F3,
+    F4,
+    F5,
+    F6,
+    F7,
+    F8,
+    F9,
+    F10,
+    F11,
+    F12,
+    F13,
+    F14,
+    F15,
+    F16,
+    F17,
+    F18,
+    F19,
+    F20,
+    F21,
+    F22,
+    F23,
+    F24,
+    F25,
+    F26,
+    F27,
+    F28,
+    F29,
+    F30,
+    F31,
+    F32,
+    F33,
+    F34,
+    F35,
+    Keypad0,
+    Keypad1,
+    Keypad2,
+    Keypad3,
+    Keypad4,
+    Keypad5,
+    Keypad6,
+    Keypad7,
+    Keypad8,
+    Keypad9,
+    KeypadDecimal,
+    KeypadDivide,
+    KeypadMultiply,
+    KeypadSubtract,
+    KeypadAdd,
+    KeypadEnter,
+    KeypadEqual,
+    KeypadSeparator,
+    KeypadF1,
+    KeypadF2,
+    KeypadF3,
+    KeypadF4,
+    KeypadInsert,
+    KeypadDelete,
+    KeypadUp,
+    KeypadDown,
+    KeypadLeft,
+    KeypadRight,
+    KeypadHome,
+    KeypadEnd,
+    KeypadPageUp,
+    KeypadPageDown,
+    KeypadBegin,
+    KeypadSpace,
+    KeypadTab,
+    CapsLock,
+    ScrollLock,
+    NumLock,
+    PrintScreen,
+    Pause,
+    Menu,
+    LeftShift,
+    LeftControl,
+    LeftAlt,
+    LeftSuper,
+    RightShift,
+    RightControl,
+    RightAlt,
+    RightSuper,
+    MediaPlay,
+    MediaPause,
+    MediaPlayPause,
+    MediaReverse,
+    MediaStop,
+    MediaFastForward,
+    MediaRewind,
+    MediaTrackNext,
+    MediaTrackPrevious,
+    MediaRecord,
+    VolumeDown,
+    VolumeUp,
+    VolumeMute,
+}
+
+impl Key {
+    /// One past the last key code: every code below this names a key.
+    pub const COUNT: u16 = sys::SHITTY_VT_KEY_COUNT;
+
+    /// The pinned C code.
+    pub fn code(self) -> u16 {
+        self as u16
+    }
+
+    /// The key a code names, or `None` for a code this build does not know.
+    pub fn from_code(code: u16) -> Option<Key> {
+        // SAFETY: the codes run 0..COUNT with no gaps and each one is a
+        // variant above - `key_codes_match_the_facade` asserts all 115 of
+        // them against the header, one by one.
+        (code < sys::SHITTY_VT_KEY_COUNT).then(|| unsafe { std::mem::transmute::<u16, Key>(code) })
+    }
+}
+
+/// Modifiers held when an event happened.
+///
+/// The lock states are not decoration: NumLock chooses between the two
+/// identities of a keypad key, and the kitty protocol reports both locks when
+/// the application asks it to.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Hash)]
+pub struct Modifiers(pub u16);
+
+impl Modifiers {
+    pub const NONE: Modifiers = Modifiers(0);
+    pub const SHIFT: Modifiers = Modifiers(sys::SHITTY_VT_MOD_SHIFT);
+    pub const CONTROL: Modifiers = Modifiers(sys::SHITTY_VT_MOD_CONTROL);
+    pub const ALT: Modifiers = Modifiers(sys::SHITTY_VT_MOD_ALT);
+    pub const SUPER: Modifiers = Modifiers(sys::SHITTY_VT_MOD_SUPER);
+    pub const CAPS_LOCK: Modifiers = Modifiers(sys::SHITTY_VT_MOD_CAPS_LOCK);
+    pub const NUM_LOCK: Modifiers = Modifiers(sys::SHITTY_VT_MOD_NUM_LOCK);
+    pub const ALT_GRAPH: Modifiers = Modifiers(sys::SHITTY_VT_MOD_ALT_GRAPH);
+
+    pub fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+
+    /// Whether every modifier in `other` is held.
+    pub fn contains(self, other: Modifiers) -> bool {
+        self.0 & other.0 == other.0
+    }
+}
+
+impl std::ops::BitOr for Modifiers {
+    type Output = Modifiers;
+
+    fn bitor(self, other: Modifiers) -> Modifiers {
+        Modifiers(self.0 | other.0)
+    }
+}
+
+impl std::ops::BitOrAssign for Modifiers {
+    fn bitor_assign(&mut self, other: Modifiers) {
+        self.0 |= other.0;
+    }
+}
+
+/// What happened to a key. Repeat and release exist for the kitty protocol; a
+/// legacy application sees presses and repeats alike and releases not at all.
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Hash)]
+pub enum KeyAction {
+    #[default]
+    Press = 0,
+    Repeat = 1,
+    Release = 2,
+}
+
+/// One physical key event.
+///
+/// The three codepoints are the key's unicode identity in the active layout
+/// unshifted, in the base (ASCII) layout, and with Shift in the active
+/// layout. They feed chord encoding and the kitty protocol's alternate keys.
+/// Leaving them `None` is well-formed: a named key has none, and an embedder
+/// that knows only the layout character sets only that one.
+///
+/// Fields are public and the type is `Copy`, so the constructors below are a
+/// starting point rather than a wall:
+///
+/// ```
+/// # use shitty_vt::{Key, KeyEvent, Modifiers};
+/// let ctrl_c = KeyEvent {
+///     modifiers: Modifiers::CONTROL,
+///     shifted: Some('C'),
+///     ..KeyEvent::printable('c')
+/// };
+/// # let _ = ctrl_c;
+/// ```
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct KeyEvent {
+    pub key: Key,
+    pub action: KeyAction,
+    pub modifiers: Modifiers,
+    pub layout: Option<char>,
+    pub base: Option<char>,
+    pub shifted: Option<char>,
+}
+
+impl KeyEvent {
+    /// A press of a named key, unmodified.
+    pub fn press(key: Key) -> KeyEvent {
+        KeyEvent {
+            key,
+            action: KeyAction::Press,
+            modifiers: Modifiers::NONE,
+            layout: None,
+            base: None,
+            shifted: None,
+        }
+    }
+
+    /// A repeat of a held key.
+    pub fn repeat(key: Key) -> KeyEvent {
+        KeyEvent {
+            action: KeyAction::Repeat,
+            ..KeyEvent::press(key)
+        }
+    }
+
+    /// A release. Only the kitty protocol reports these; under any other
+    /// encoding the terminal drops them.
+    pub fn release(key: Key) -> KeyEvent {
+        KeyEvent {
+            action: KeyAction::Release,
+            ..KeyEvent::press(key)
+        }
+    }
+
+    /// A press of a character key, with `ch` as both the layout and the base
+    /// identity. That is right for a latin layout; on any other, set
+    /// [`KeyEvent::base`] to the character the same physical key types in the
+    /// ASCII layout, which is what a chord like Ctrl+C is encoded from.
+    pub fn printable(ch: char) -> KeyEvent {
+        KeyEvent {
+            layout: Some(ch),
+            base: Some(ch),
+            ..KeyEvent::press(Key::Printable)
+        }
+    }
+
+    /// The same event with `modifiers` held.
+    pub fn with_modifiers(self, modifiers: Modifiers) -> KeyEvent {
+        KeyEvent { modifiers, ..self }
+    }
+
+    fn to_raw(self) -> sys::shitty_vt_key_event {
+        sys::shitty_vt_key_event {
+            key: self.key.code(),
+            action: self.action as u8,
+            modifiers: self.modifiers.0,
+            layout_codepoint: self.layout.map_or(0, u32::from),
+            base_codepoint: self.base.map_or(0, u32::from),
+            shifted_codepoint: self.shifted.map_or(0, u32::from),
+        }
+    }
+}
+
+/// A pointer button. The protocols' own numbering is the terminal's business.
+#[repr(i32)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub enum MouseButton {
+    Left = 0,
+    Right = 1,
+    Middle = 2,
+    Aux1 = 3,
+    Aux2 = 4,
+    Aux3 = 5,
+    Aux4 = 6,
+    Aux5 = 7,
 }
 
 /// What the terminal reported through its callbacks since the last read.
@@ -425,6 +731,133 @@ impl Terminal {
 
     pub fn modes(&self) -> Modes {
         Modes(unsafe { sys::shitty_vt_modes(self.raw) })
+    }
+
+    /// Reports a physical key. Returns whether the terminal consumed it.
+    ///
+    /// The terminal does its own encoding: cursor and keypad modes,
+    /// modifyOtherKeys and the kitty keyboard protocol are applied exactly as
+    /// the application negotiated them, and the bytes land in
+    /// [`Terminal::take_replies`] with everything else bound for the child.
+    ///
+    /// Deliver a keystroke the way a windowing layer does — the key, then the
+    /// text it produced, then [`Terminal::input_flush`] to end the batch. The
+    /// flush is not a formality: a key can be held back to learn whether text
+    /// follows it (the kitty protocol's associated text), and is released
+    /// either by that text or by the flush. [`Terminal::send_key`] does the
+    /// three in order for callers with nothing to interleave.
+    pub fn key(&mut self, event: KeyEvent) -> bool {
+        let raw = event.to_raw();
+        // SAFETY: `raw` outlives the call, which is all the facade asks.
+        unsafe { sys::shitty_vt_key(self.raw, &raw) != 0 }
+    }
+
+    /// Reports the text a key produced, or that an input method committed,
+    /// one character at a time. Text can arrive without a key event before it.
+    pub fn text(&mut self, ch: char, modifiers: Modifiers) -> bool {
+        unsafe { sys::shitty_vt_text(self.raw, ch as u32, modifiers.0) != 0 }
+    }
+
+    /// Ends the event batch, releasing a key that was waiting to see whether
+    /// text followed it.
+    pub fn input_flush(&mut self) {
+        unsafe { sys::shitty_vt_input_flush(self.raw) }
+    }
+
+    /// A whole keystroke: the key, the text it produced if any, and the flush
+    /// that ends the batch. Returns whether the key was consumed.
+    ///
+    /// ```
+    /// use shitty_vt::{Key, KeyEvent, Modifiers, Terminal};
+    ///
+    /// let mut term = Terminal::new(80, 24, 1000);
+    /// term.send_key(KeyEvent::printable('a'), Some('a'));
+    /// term.send_key(KeyEvent::press(Key::Up), None);
+    /// term.send_key(
+    ///     KeyEvent::printable('c').with_modifiers(Modifiers::CONTROL),
+    ///     None,
+    /// );
+    /// assert_eq!(term.take_replies(), b"a\x1b[A\x03");
+    /// ```
+    ///
+    /// What the same three events encode to is the application's choice, not
+    /// this caller's: after `\x1b[?1h` the arrow is `\x1bOA`, and after
+    /// `\x1b[>1u` an Escape key is `\x1b[27u`.
+    pub fn send_key(&mut self, event: KeyEvent, text: Option<char>) -> bool {
+        let consumed = self.key(event);
+        if let Some(ch) = text {
+            self.text(ch, event.modifiers);
+        }
+        self.input_flush();
+        consumed
+    }
+
+    /// A pointer button, at a cell 0-based from the top left.
+    ///
+    /// `time` is seconds on any monotonic clock and is what separates the
+    /// clicks of a double or triple click. With no tracking mode capturing
+    /// the pointer, an unshifted press and drag selects instead, and the
+    /// finished selection arrives through
+    /// [`Terminal::take_clipboard_writes`].
+    pub fn mouse_button(
+        &mut self,
+        button: MouseButton,
+        pressed: bool,
+        column: i32,
+        row: i32,
+        modifiers: Modifiers,
+        time: f64,
+    ) -> bool {
+        unsafe {
+            sys::shitty_vt_mouse_button(
+                self.raw,
+                button as c_int,
+                pressed as c_int,
+                column,
+                row,
+                modifiers.0,
+                time,
+            ) != 0
+        }
+    }
+
+    /// Pointer motion. During a drag the cell may be outside the grid, which
+    /// is why the coordinates are signed.
+    pub fn mouse_motion(&mut self, column: i32, row: i32, modifiers: Modifiers) -> bool {
+        unsafe { sys::shitty_vt_mouse_motion(self.raw, column, row, modifiers.0) != 0 }
+    }
+
+    /// Wheel or trackpad scroll, in wheel lines, positive up and right;
+    /// fractions accumulate across calls.
+    ///
+    /// Goes to the application when a mouse mode captures the wheel —
+    /// including the alternate screen's wheel-to-arrows — and moves the view
+    /// through the scrollback otherwise.
+    pub fn mouse_scroll(
+        &mut self,
+        dx: f64,
+        dy: f64,
+        column: i32,
+        row: i32,
+        modifiers: Modifiers,
+    ) -> bool {
+        unsafe { sys::shitty_vt_mouse_scroll(self.raw, dx, dy, column, row, modifiers.0) != 0 }
+    }
+
+    /// Pastes through the terminal's own paste path: the payload is sanitized
+    /// and, when the application turned bracketed paste on, wrapped in its
+    /// markers. Capped at 16 MiB.
+    pub fn paste(&mut self, bytes: &[u8]) {
+        if bytes.is_empty() {
+            return;
+        }
+        unsafe { sys::shitty_vt_paste(self.raw, bytes.as_ptr(), bytes.len()) }
+    }
+
+    /// Keyboard focus, reported to applications that asked for focus events.
+    /// A fresh terminal is focused.
+    pub fn set_focus(&mut self, focused: bool) {
+        unsafe { sys::shitty_vt_focus(self.raw, focused as c_int) }
     }
 
     /// The most recent title the application set, or `None` while it has set

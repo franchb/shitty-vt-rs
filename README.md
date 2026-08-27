@@ -7,14 +7,14 @@
 Rust bindings to [shitty](https://github.com/pg83/shitty)'s embeddable VT core.
 
 - [`shitty-vt`](https://crates.io/crates/shitty-vt) — a safe wrapper: feed
-  bytes, read a grid.
+  bytes, read a grid, report input events.
 - [`shitty-vt-sys`](https://crates.io/crates/shitty-vt-sys) — raw FFI
   declarations, transcribed by hand from `lib/embed/shitty_vt.h`. No bindgen,
   so no libclang on consumers.
 
 ```toml
 [dependencies]
-shitty-vt = "0.1"
+shitty-vt = "0.2"
 ```
 
 The library itself is not on crates.io and never will be — it is C++, built
@@ -22,6 +22,13 @@ from a shitty checkout and found through pkg-config. See Building.
 
 Neither crate depends on any terminal application. The core owns no pty and
 spawns no child; replies it generates queue until the embedder drains them.
+
+Input goes the same way round. The embedder reports events — a key, the text it
+produced, a mouse button, a paste — and the terminal encodes them by whatever
+protocol the application negotiated, queueing the bytes with the rest of the
+replies. Nothing about the encoding is the embedder's business, which is the
+point: the state that decides it (kitty flags, modifyOtherKeys, the mouse
+modes) never leaves the terminal.
 
 ## Building
 
@@ -66,7 +73,7 @@ Adding the dependency is not enough on its own — there is a C library to build
 and without it `cargo build` stops in the build script:
 
 ```text
-error: failed to run custom build command for `shitty-vt-sys v0.1.0`
+error: failed to run custom build command for `shitty-vt-sys v0.2.0`
 
   could not find shitty_vt.
 
@@ -79,15 +86,50 @@ That is the expected failure when `PKG_CONFIG_PATH` does not name a directory
 holding `shitty_vt.pc`, not a broken release. Follow the steps above, or set
 `SHITTY_VT_LIB_DIR`; the message repeats both.
 
+A release tree older than the input entry points fails the same way, naming the
+header it found and the upstream change that added them. Repackaging a current
+checkout is the whole fix.
+
 ## Status
 
 Working: feed, resize, per-cell reads with grapheme clusters and resolved
 colours, cursor, mode flags, reply draining, scrollback view movement,
-row-addressed history reads, memory accounting, a changeable history cap, and
-the title, bell, damage, open-uri, clipboard and resize-request callbacks.
-Twenty-five behaviour tests
-cover these, in the same cell-dump format the Luvus conformance tests use so
-the two engines can be diffed directly.
+row-addressed history reads, memory accounting, a changeable history cap, the
+input entry points (key, text, mouse, wheel, paste, focus), and the title,
+bell, damage, open-uri, clipboard and resize-request callbacks. Forty-two
+behaviour tests cover these: twenty-five in the same cell-dump format the Luvus
+conformance tests use, so the two engines can be diffed directly, and seventeen
+over input, each pinning bytes the terminal produced rather than bytes these
+bindings built.
+
+### Input
+
+A keystroke is three calls — the key, the text it produced, and a flush ending
+the batch — because a key can be held back to learn whether text follows it,
+which is what the kitty protocol's associated text needs. `send_key` does the
+three in order for callers with nothing to interleave:
+
+```rust
+use shitty_vt::{Key, KeyEvent, Modifiers, Terminal};
+
+let mut term = Terminal::new(80, 24, 1000);
+term.send_key(KeyEvent::printable('a'), Some('a'));
+term.send_key(KeyEvent::press(Key::Up), None);
+term.send_key(
+    KeyEvent::printable('c').with_modifiers(Modifiers::CONTROL),
+    None,
+);
+assert_eq!(term.take_replies(), b"a\x1b[A\x03");
+```
+
+What those same events encode to changes with what the application asked for:
+`\x1b[?1h` turns the arrow into `\x1bOA`, `\x1b[>1u` turns Escape into
+`\x1b[27u`, and neither is anything the caller has to know.
+
+Key codes, modifier bits, actions and buttons are pinned ABI upstream, checked
+there against the input layer with `static_assert`. `Key` mirrors them as an
+enum and a test re-checks every code one link further out, so a header that
+renumbers cannot quietly turn one key into another.
 
 ### Mapping onto Luvus's `VtEngine`
 
@@ -114,6 +156,12 @@ Written down because the gaps are the interesting part, not the matches.
 Everything above is upstream: the facade covers the visible grid and the
 scrollback, and every method on that trait has something behind it. Two rows are
 honest partial matches rather than exact ones, as the table notes.
+
+The input entry points have no row in that table, and deliberately so: Luvus
+encodes keys above its engine boundary rather than through it, so `VtEngine`
+never sees them. They are here for embedders that do want the terminal to
+encode, which is every embedder that means to honour the kitty protocol or
+modifyOtherKeys without reimplementing the negotiation.
 
 ### Known quirks
 
