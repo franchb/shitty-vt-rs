@@ -8,7 +8,9 @@
 //! Input goes the same way. Report events - [`Terminal::key`],
 //! [`Terminal::text`], the mouse entry points, [`Terminal::paste`] - and the
 //! terminal encodes them by whatever protocol the application negotiated,
-//! queueing the bytes in the same reply buffer. The embedder never encodes,
+//! queueing the bytes in the same reply buffer. An input method's
+//! uncommitted text is reported the same way, through
+//! [`Terminal::set_preedit`], and read back as cells to draw over the grid. The embedder never encodes,
 //! because the state that decides the encoding (kitty flags, modifyOtherKeys,
 //! the mouse modes) lives inside the terminal.
 //!
@@ -23,6 +25,7 @@
 
 use std::cell::UnsafeCell;
 use std::ffi::{c_int, c_void};
+use std::ops::Range;
 
 use shitty_vt_sys as sys;
 
@@ -512,6 +515,13 @@ unsafe extern "C" fn visit<F: FnMut(u16, u16, Cell<'_>)>(
     );
 }
 
+/// A byte offset as the facade takes it. Negative means "no cursor", so an
+/// offset too large to express is pinned to the largest one that can be;
+/// the terminal clamps it to the text either way.
+fn offset(value: usize) -> i32 {
+    i32::try_from(value).unwrap_or(i32::MAX)
+}
+
 /// An embedded terminal.
 pub struct Terminal {
     raw: *mut sys::shitty_vt,
@@ -858,6 +868,64 @@ impl Terminal {
     /// A fresh terminal is focused.
     pub fn set_focus(&mut self, focused: bool) {
         unsafe { sys::shitty_vt_focus(self.raw, focused as c_int) }
+    }
+
+    /// The text an input method is composing, before it commits.
+    ///
+    /// The preview belongs to no one else: it is drawn over the cursor row
+    /// and never enters the grid, the scrollback or the replies. The
+    /// committed text arrives afterwards as ordinary [`Terminal::text`]
+    /// events, and an empty `text` clears the preview, as
+    /// [`Terminal::clear_preedit`] does.
+    ///
+    /// `cursor` is the input method's own cursor, a byte range into `text`:
+    /// that range is shown in reverse video and the rest of the preview
+    /// underlined. `None` is an input method that draws no cursor. A range
+    /// past the end of the text is clamped to it.
+    ///
+    /// While a preview is up, [`Terminal::cursor`] reports a hidden cursor
+    /// sitting at the preview's cursor cell, which is where an input method
+    /// wants its candidate window.
+    ///
+    /// ```
+    /// # use shitty_vt::Terminal;
+    /// let mut term = Terminal::new(80, 24, 0);
+    /// term.feed(b"hello");
+    /// term.set_preedit("\u{3042}", Some(0..3));
+    ///
+    /// let mut preview = String::new();
+    /// term.preedit_cells(|_row, _column, cell| preview.push_str(&cell.text()));
+    /// assert_eq!(preview, "\u{3042}");
+    /// // Drawn over the row, never in it.
+    /// assert!(!term.cursor().visible);
+    /// ```
+    pub fn set_preedit(&mut self, text: &str, cursor: Option<Range<usize>>) {
+        let (begin, end) = match cursor {
+            Some(range) => (offset(range.start), offset(range.end)),
+            None => (-1, -1),
+        };
+        // SAFETY: `text` is valid for its length, which is all the call
+        // reads; an empty one is never dereferenced.
+        unsafe { sys::shitty_vt_preedit(self.raw, text.as_ptr(), text.len(), begin, end) }
+    }
+
+    /// Drops the composition preview, giving the application its cursor back.
+    pub fn clear_preedit(&mut self) {
+        self.set_preedit("", None);
+    }
+
+    /// Visits the composition preview's cells left to right, at the row and
+    /// columns they cover. Visits nothing when no preview is active.
+    ///
+    /// They are an overlay: [`Terminal::for_each_cell`] does not report them
+    /// and what they cover is still underneath, so draw them last. A preview
+    /// too wide for its row is clipped to it, keeping the freshest input,
+    /// and the columns say where the remainder landed.
+    pub fn preedit_cells<F: FnMut(u16, u16, Cell<'_>)>(&self, mut f: F) {
+        // SAFETY: as in `for_each_cell`.
+        unsafe {
+            sys::shitty_vt_preedit_cells(self.raw, visit::<F>, &mut f as *mut F as *mut c_void);
+        }
     }
 
     /// The most recent title the application set, or `None` while it has set

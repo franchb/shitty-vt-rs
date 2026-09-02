@@ -318,4 +318,12 @@ extern "C" {
     ) -> c_int;
     pub fn shitty_vt_paste(vt: *mut shitty_vt, bytes: *const u8, len: usize);
     pub fn shitty_vt_focus(vt: *mut shitty_vt, focused: c_int);
+    pub fn shitty_vt_preedit(
+        vt: *mut shitty_vt,
+        text: *const u8,
+        len: usize,
+        cursor_begin: i32,
+        cursor_end: i32,
+    );
+    pub fn shitty_vt_preedit_cells(vt: *mut shitty_vt, f: shitty_vt_cell_fn, user: *mut c_void);
 }

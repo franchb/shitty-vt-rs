@@ -66,25 +66,27 @@ pkg-config said: {error}"
     }
 }
 
-/// Fails early on a facade older than the input entry points.
+/// Fails early on a facade older than the entry points this crate calls.
 ///
-/// They arrived after the first release, and linking against a header that
-/// predates them fails with a list of undefined symbols that names no cause.
-/// The header the probe just pointed at can say it plainly instead. A header
-/// that cannot be read is left alone: the linker is still there to complain.
+/// They arrive upstream over time, and linking against a header that predates
+/// one fails with a list of undefined symbols that names no cause. The header
+/// the probe just pointed at can say it plainly instead. A header that cannot
+/// be read is left alone: the linker is still there to complain.
+///
+/// Only the newest addition is checked, since the facade only grows.
 fn require_input_api(header: &Path) {
     let Ok(text) = fs::read_to_string(header) else {
         return;
     };
-    if text.contains("shitty_vt_key(") {
+    if text.contains("shitty_vt_preedit(") {
         return;
     }
     panic!(
-        "{} predates the input API.
+        "{} predates the composition preview.
 
-This crate needs a facade with shitty_vt_key and the other input entry
-points, which landed in pg83/shitty#103. Update the shitty checkout and
-repackage it:
+This crate needs a facade with shitty_vt_preedit and shitty_vt_preedit_cells,
+which landed in pg83/shitty#106, along with the input entry points from #103.
+Update the shitty checkout and repackage it:
 
     git pull
     ./build tgz

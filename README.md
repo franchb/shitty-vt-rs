@@ -14,7 +14,7 @@ Rust bindings to [shitty](https://github.com/pg83/shitty)'s embeddable VT core.
 
 ```toml
 [dependencies]
-shitty-vt = "0.2"
+shitty-vt = "0.3"
 ```
 
 The library itself is not on crates.io and never will be — it is C++, built
@@ -73,7 +73,7 @@ Adding the dependency is not enough on its own — there is a C library to build
 and without it `cargo build` stops in the build script:
 
 ```text
-error: failed to run custom build command for `shitty-vt-sys v0.2.0`
+error: failed to run custom build command for `shitty-vt-sys v0.3.0`
 
   could not find shitty_vt.
 
@@ -95,12 +95,13 @@ checkout is the whole fix.
 Working: feed, resize, per-cell reads with grapheme clusters and resolved
 colours, cursor, mode flags, reply draining, scrollback view movement,
 row-addressed history reads, memory accounting, a changeable history cap, the
-input entry points (key, text, mouse, wheel, paste, focus), and the title,
-bell, damage, open-uri, clipboard and resize-request callbacks. Forty-two
-behaviour tests cover these: twenty-five in the same cell-dump format the Luvus
-conformance tests use, so the two engines can be diffed directly, and seventeen
-over input, each pinning bytes the terminal produced rather than bytes these
-bindings built.
+input entry points (key, text, mouse, wheel, paste, focus), the composition
+preview an input method draws while composing, and the title, bell, damage,
+open-uri, clipboard and resize-request callbacks. Fifty-four behaviour tests
+cover these: twenty-five in the same cell-dump format the Luvus conformance
+tests use, so the two engines can be diffed directly, seventeen over input,
+each pinning bytes the terminal produced rather than bytes these bindings
+built, and twelve over the preview.
 
 ### Input
 
@@ -125,6 +126,23 @@ assert_eq!(term.take_replies(), b"a\x1b[A\x03");
 What those same events encode to changes with what the application asked for:
 `\x1b[?1h` turns the arrow into `\x1bOA`, `\x1b[>1u` turns Escape into
 `\x1b[27u`, and neither is anything the caller has to know.
+
+An input method's uncommitted text goes in through `set_preedit` and comes back
+as cells to draw over the grid:
+
+```rust
+let mut term = Terminal::new(80, 24, 1000);
+term.feed(b"hello");
+term.set_preedit("\u{3042}", Some(0..3));
+term.preedit_cells(|row, column, cell| {
+    // Draw cell.text() at (row, column), over whatever the grid has there.
+});
+```
+
+The preview is an overlay in every sense: it never enters the grid, the
+scrollback or the replies, `for_each_cell` does not report it, and while it is
+up the terminal hides its own cursor and puts it where the candidate window
+goes.
 
 Key codes, modifier bits, actions and buttons are pinned ABI upstream, checked
 there against the input layer with `static_assert`. `Key` mirrors them as an
@@ -157,9 +175,9 @@ Everything above is upstream: the facade covers the visible grid and the
 scrollback, and every method on that trait has something behind it. Two rows are
 honest partial matches rather than exact ones, as the table notes.
 
-The input entry points have no row in that table, and deliberately so: Luvus
-encodes keys above its engine boundary rather than through it, so `VtEngine`
-never sees them. They are here for embedders that do want the terminal to
+The input entry points and the composition preview have no row in that table,
+and deliberately so: Luvus encodes keys above its engine boundary rather than
+through it, so `VtEngine` never sees them. They are here for embedders that do want the terminal to
 encode, which is every embedder that means to honour the kitty protocol or
 modifyOtherKeys without reimplementing the negotiation.
 
@@ -172,6 +190,11 @@ modifyOtherKeys without reimplementing the negotiation.
 - `Cursor::row` is a row of the current view, so while scrolled into the
   scrollback it can be at or past the last row, meaning the cursor is off
   screen. Do not index a grid with it unchecked.
+- The composition preview drops zero-width codepoints, so a combining mark
+  vanishes from it and an emoji ZWJ sequence splits in two — the same text
+  behaves differently in the grid, which joins them. Reported as
+  [pg83/shitty#109](https://github.com/pg83/shitty/issues/109) and pinned by a
+  test in both directions.
 - Emoji width differs from `alacritty_terminal`: a ZWJ sequence or an
   emoji-modifier sequence is one width-2 cell here and two wide cells there,
   and `U+2764 U+FE0F` is wide here and narrow there. UTS #51 favours this
