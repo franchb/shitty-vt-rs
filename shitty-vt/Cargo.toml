@@ -15,4 +15,4 @@ readme = "../README.md"
 all-features = true
 
 [dependencies]
-shitty-vt-sys = { path = "../shitty-vt-sys", version = "0.3.0" }
+shitty-vt-sys = { path = "../shitty-vt-sys", version = "0.4.0" }

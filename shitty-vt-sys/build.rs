@@ -42,7 +42,7 @@ fn main() {
     {
         Ok(library) => {
             for dir in &library.include_paths {
-                require_input_api(&dir.join("shitty_vt.h"));
+                require_current_facade(&dir.join("shitty_vt.h"));
             }
             // The .pc deliberately does not guess between libstdc++ and
             // libc++, so a static link still needs a C++ runtime named here.
@@ -66,26 +66,30 @@ pkg-config said: {error}"
     }
 }
 
-/// Fails early on a facade older than the entry points this crate calls.
+/// Fails early on a facade older than what this crate reads.
 ///
-/// They arrive upstream over time, and linking against a header that predates
-/// one fails with a list of undefined symbols that names no cause. The header
-/// the probe just pointed at can say it plainly instead. A header that cannot
-/// be read is left alone: the linker is still there to complain.
+/// Additions arrive upstream over time. A missing entry point at least fails
+/// the link with a name to chase; a missing *field* fails nothing at all. The
+/// cell struct here is the one the current facade fills, so an older library
+/// writes fewer bytes than this crate reads and the colour sources come back
+/// as whatever was on the stack. The header the probe just pointed at can say
+/// so before any of that. A header that cannot be read is left alone: the
+/// linker is still there to complain about the entry points, at least.
 ///
 /// Only the newest addition is checked, since the facade only grows.
-fn require_input_api(header: &Path) {
+fn require_current_facade(header: &Path) {
     let Ok(text) = fs::read_to_string(header) else {
         return;
     };
-    if text.contains("shitty_vt_preedit(") {
+    if text.contains("SHITTY_VT_COLOR_KIND") {
         return;
     }
     panic!(
-        "{} predates the composition preview.
+        "{} predates the cell colour sources.
 
-This crate needs a facade with shitty_vt_preedit and shitty_vt_preedit_cells,
-which landed in pg83/shitty#106, along with the input entry points from #103.
+This crate reads shitty_vt_cell.foreground_source and its two neighbours,
+which landed in pg83/shitty#112. Linking against a library without them is
+not a link error - it silently reads past the struct the library filled.
 Update the shitty checkout and repackage it:
 
     git pull

@@ -14,7 +14,7 @@ Rust bindings to [shitty](https://github.com/pg83/shitty)'s embeddable VT core.
 
 ```toml
 [dependencies]
-shitty-vt = "0.3"
+shitty-vt = "0.4"
 ```
 
 The library itself is not on crates.io and never will be — it is C++, built
@@ -73,7 +73,7 @@ Adding the dependency is not enough on its own — there is a C library to build
 and without it `cargo build` stops in the build script:
 
 ```text
-error: failed to run custom build command for `shitty-vt-sys v0.3.0`
+error: failed to run custom build command for `shitty-vt-sys v0.4.0`
 
   could not find shitty_vt.
 
@@ -86,22 +86,64 @@ That is the expected failure when `PKG_CONFIG_PATH` does not name a directory
 holding `shitty_vt.pc`, not a broken release. Follow the steps above, or set
 `SHITTY_VT_LIB_DIR`; the message repeats both.
 
-A release tree older than the input entry points fails the same way, naming the
-header it found and the upstream change that added them. Repackaging a current
-checkout is the whole fix.
+A release tree older than the cell colour sources fails the same way, naming
+the header it found and the upstream change that added them. Repackaging a
+current checkout is the whole fix. That check is not only a convenience: a
+missing entry point would at least fail the link, but a missing *field* fails
+nothing — the library would fill less of the cell struct than these bindings
+read.
 
 ## Status
 
-Working: feed, resize, per-cell reads with grapheme clusters and resolved
-colours, cursor, mode flags, reply draining, scrollback view movement,
-row-addressed history reads, memory accounting, a changeable history cap, the
-input entry points (key, text, mouse, wheel, paste, focus), the composition
-preview an input method draws while composing, and the title, bell, damage,
-open-uri, clipboard and resize-request callbacks. Fifty-four behaviour tests
-cover these: twenty-five in the same cell-dump format the Luvus conformance
-tests use, so the two engines can be diffed directly, seventeen over input,
-each pinning bytes the terminal produced rather than bytes these bindings
-built, and twelve over the preview.
+Working: feed, resize, per-cell reads with grapheme clusters, colours both
+resolved and as the application asked for them, cursor, mode flags, reply
+draining, scrollback view movement, row-addressed history reads, memory
+accounting, a changeable history cap, the input entry points (key, text,
+mouse, wheel, paste, focus), the composition preview an input method draws
+while composing, and the title, bell, damage, open-uri, clipboard and
+resize-request callbacks. Sixty-three behaviour tests cover these:
+twenty-five in the same cell-dump format the Luvus conformance tests use, so
+the two engines can be diffed directly, seventeen over input, each pinning
+bytes the terminal produced rather than bytes these bindings built, twelve
+over the preview and nine over the colour sources.
+
+### Colours
+
+Every cell carries its colours twice: `foreground` and its two neighbours hold
+the resolved `Rgb`, and `foreground_source` and its two hold the request that
+produced it.
+
+```rust
+use shitty_vt::{ColorSource, Terminal};
+
+let mut term = Terminal::new(80, 24, 0);
+term.feed(b"\x1b[31mred\x1b[0m plain");
+term.for_each_cell(|_, _, cell| {
+    match cell.foreground_source {
+        // Yours, not this terminal's white.
+        ColorSource::DefaultForeground => {}
+        // ANSI red is entry 1, whatever your palette puts there.
+        ColorSource::Indexed(entry) => { let _ = entry; }
+        // Already a colour: use cell.foreground.
+        ColorSource::Direct => {}
+        ColorSource::DefaultBackground => {}
+    }
+});
+```
+
+An embedder painting with this terminal's palette can ignore the sources.
+One that owns a palette cannot: resolved RGB has already turned "the default
+foreground" into a particular white and "ANSI red" into a particular red, so a
+multiplexer drawing into another terminal loses the host's theme on every cell
+that had one coming. The source survives an `OSC 4` that moves the entry
+underneath it — the application asked for entry 1 and still has, whatever the
+palette now holds.
+
+Inverse is an attribute rather than a swapped pair, so both sources describe
+what was asked for and swapping them is the embedder's to do. The one thing
+that does collapse into `Direct` is a special colour this terminal's own
+configuration substitutes — bold, blink, underline, italic or inverse — since
+what reaches the embedder is then a colour in its own right.
 
 ### Input
 

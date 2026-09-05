@@ -14,6 +14,12 @@
 //! because the state that decides the encoding (kitty flags, modifyOtherKeys,
 //! the mouse modes) lives inside the terminal.
 //!
+//! Cells report their colours twice: resolved through this terminal's palette,
+//! and as the application asked for them - the default foreground, a palette
+//! entry, or a colour named outright. An embedder with a palette of its own
+//! needs the latter, since a resolved colour has already lost the difference.
+//! See [`ColorSource`].
+//!
 //! ```no_run
 //! # use shitty_vt::Terminal;
 //! let mut term = Terminal::new(80, 24, 1000);
@@ -80,6 +86,47 @@ impl Rgb {
     }
 }
 
+/// Where a cell's colour came from, before the palette resolved it.
+///
+/// The resolved [`Rgb`] beside it is what this terminal would have painted
+/// with its own configuration. An embedder that owns a palette - a TUI
+/// inheriting the host terminal's theme, or one theming its panes - needs the
+/// request instead: resolved RGB turns "the default foreground" and "ANSI
+/// red" into fixed colours, and the embedder's own theme then never applies.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ColorSource {
+    /// The default foreground. Paint it with yours.
+    DefaultForeground,
+    /// The default background.
+    DefaultBackground,
+    /// A palette entry, including the sixteen ANSI colours. Still that entry
+    /// after OSC 4 redefines it: the request is what the application made,
+    /// not what the palette currently holds.
+    Indexed(u8),
+    /// A colour named outright - SGR 38/48 with a triple - or one of this
+    /// terminal's special colours (bold, blink, underline, italic, inverse)
+    /// standing in for a request. Either way it arrives already a colour, so
+    /// [`Cell::foreground`] and its neighbours are the whole of it.
+    Direct,
+}
+
+impl ColorSource {
+    /// The kind lives in the low byte of the packed field, the palette entry
+    /// in the high one. An unknown kind is read as [`ColorSource::Direct`]:
+    /// the resolved value is always right, so a newer facade degrades to
+    /// painting rather than to nonsense.
+    fn from_packed(source: u16) -> Self {
+        match sys::shitty_vt_color_kind(source) {
+            sys::SHITTY_VT_COLOR_DEFAULT_FOREGROUND => ColorSource::DefaultForeground,
+            sys::SHITTY_VT_COLOR_DEFAULT_BACKGROUND => ColorSource::DefaultBackground,
+            sys::SHITTY_VT_COLOR_INDEXED => {
+                ColorSource::Indexed(sys::shitty_vt_color_index(source))
+            }
+            _ => ColorSource::Direct,
+        }
+    }
+}
+
 /// One visible cell. Borrowed for the duration of the visit callback.
 #[derive(Clone, Copy, Debug)]
 pub struct Cell<'a> {
@@ -88,6 +135,11 @@ pub struct Cell<'a> {
     pub foreground: Rgb,
     pub background: Rgb,
     pub underline_color: Rgb,
+    /// What the application asked for, where [`Cell::foreground`] is what
+    /// this terminal would have painted.
+    pub foreground_source: ColorSource,
+    pub background_source: ColorSource,
+    pub underline_source: ColorSource,
     pub attributes: Attributes,
     /// 0 none, 1 straight, 2 double, 3 curly, 4 dotted, 5 dashed
     pub underline_style: u8,
@@ -508,6 +560,9 @@ unsafe extern "C" fn visit<F: FnMut(u16, u16, Cell<'_>)>(
             foreground: Rgb::from_packed(cell.foreground),
             background: Rgb::from_packed(cell.background),
             underline_color: Rgb::from_packed(cell.underline_color),
+            foreground_source: ColorSource::from_packed(cell.foreground_source),
+            background_source: ColorSource::from_packed(cell.background_source),
+            underline_source: ColorSource::from_packed(cell.underline_source),
             attributes: Attributes(cell.attributes),
             underline_style: cell.underline_style,
             width: cell.width,

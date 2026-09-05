@@ -24,6 +24,23 @@ pub const SHITTY_VT_ATTR_CONCEAL: u16 = 1 << 5;
 pub const SHITTY_VT_ATTR_STRIKE: u16 = 1 << 6;
 pub const SHITTY_VT_ATTR_OVERLINE: u16 = 1 << 7;
 
+// shitty_vt_cell.*_source kinds, in the low byte of the field.
+pub const SHITTY_VT_COLOR_DEFAULT_FOREGROUND: u16 = 0;
+pub const SHITTY_VT_COLOR_DEFAULT_BACKGROUND: u16 = 1;
+pub const SHITTY_VT_COLOR_INDEXED: u16 = 2;
+pub const SHITTY_VT_COLOR_DIRECT: u16 = 3;
+
+/// `SHITTY_VT_COLOR_KIND`, which the header spells as a macro.
+pub const fn shitty_vt_color_kind(source: u16) -> u16 {
+    source & 0xff
+}
+
+/// `SHITTY_VT_COLOR_INDEX`: the palette entry, valid only when the kind is
+/// [`SHITTY_VT_COLOR_INDEXED`].
+pub const fn shitty_vt_color_index(source: u16) -> u8 {
+    ((source >> 8) & 0xff) as u8
+}
+
 // shitty_vt_modes() bits
 pub const SHITTY_VT_MODE_ALT_SCREEN: u32 = 1 << 0;
 pub const SHITTY_VT_MODE_BRACKETED_PASTE: u32 = 1 << 1;
@@ -188,6 +205,11 @@ pub const SHITTY_VT_MOUSE_AUX5: c_int = 7;
 
 /// One readable cell. Colours are `0x00BBGGRR`. `grapheme` is valid only for
 /// the duration of the [`shitty_vt_cell_fn`] callback.
+///
+/// The `*_source` fields say where each resolved colour came from, so an
+/// embedder with a palette of its own can honour the request rather than the
+/// value this terminal would have painted. Read them with
+/// [`shitty_vt_color_kind`] and [`shitty_vt_color_index`].
 #[repr(C)]
 pub struct shitty_vt_cell {
     pub grapheme: *const u32,
@@ -200,6 +222,9 @@ pub struct shitty_vt_cell {
     pub underline_style: u8,
     /// 1 or 2; the continuation of a wide cell is not reported
     pub width: u8,
+    pub foreground_source: u16,
+    pub background_source: u16,
+    pub underline_source: u16,
 }
 
 /// What the terminal spends on its grid and history. Cells only: the
