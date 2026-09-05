@@ -27,6 +27,10 @@ fn first_row(term: &Terminal) -> String {
     row.trim_end().to_string()
 }
 
+/// The column `composing` leaves the cursor on, and so the column the
+/// preview starts at.
+const PREVIEW_COLUMN: u16 = 5;
+
 fn composing(text: &str, cursor: Option<std::ops::Range<usize>>) -> Terminal {
     let mut term = Terminal::new(20, 6, 0);
     term.feed(b"hello");
@@ -153,53 +157,39 @@ fn no_cursor_range_leaves_the_whole_preview_underlined() {
 }
 
 #[test]
-fn a_cluster_renders_unlike_the_same_text_in_the_grid() {
-    // Upstream pg83/shitty#109: the preview drops every zero-width
-    // codepoint instead of joining it to the cell before it, so a
-    // combining mark disappears and an emoji sequence splits. The grid
-    // does neither. Pinned rather than worked around - the bindings hand
-    // over the text they are given - so that a fix upstream shows up here
-    // as a failure rather than as silence.
-    let cases = [
-        // (text, preview cells as (column, text), grid cells)
-        ("e\u{301}", vec![(5, "e")], vec![(0, "e\u{301}")]),
-        (
-            "\u{2764}\u{FE0F}",
-            vec![(5, "\u{2764}")],
-            vec![(0, "\u{2764}\u{FE0F}")],
-        ),
-        (
-            "\u{1F469}\u{200D}\u{1F4BB}",
-            vec![(5, "\u{1F469}"), (7, "\u{1F4BB}")],
-            vec![(0, "\u{1F469}\u{200D}\u{1F4BB}")],
-        ),
-    ];
-
-    for (text, expected_preview, expected_grid) in cases {
+fn a_cluster_renders_like_the_same_text_in_the_grid() {
+    // Upstream pg83/shitty#109: the preview used to drop every zero-width
+    // codepoint rather than joining it to the cell before it, so a
+    // combining mark vanished and an emoji sequence split in two, while
+    // the grid joined both. pg83/shitty#111 made the preview cluster the
+    // way printed text does.
+    //
+    // This compares the two instead of restating either, so it pins the
+    // agreement rather than one particular reading of where a cluster
+    // breaks - which is the part that has to hold whatever upstream
+    // decides about emoji.
+    for text in [
+        "e\u{301}",
+        "\u{2764}\u{FE0F}",
+        "\u{1F469}\u{200D}\u{1F4BB}",
+        // Two clusters, so a preview that joined everything into one cell
+        // would fail this as surely as one that joined nothing.
+        "e\u{301}a\u{301}",
+    ] {
         let term = composing(text, Some(0..text.len()));
-        let shown: Vec<(u16, String)> = preview(&term)
-            .into_iter()
-            .map(|(_, column, cell)| (column, cell))
-            .collect();
-        let expected: Vec<(u16, String)> = expected_preview
-            .into_iter()
-            .map(|(column, cell)| (column, cell.to_string()))
-            .collect();
-        assert_eq!(shown, expected, "preview of {text:?}");
+        let mut shown = Vec::new();
+        term.preedit_cells(|_, column, cell| shown.push((column, cell.text(), cell.width)));
 
         let mut grid = Terminal::new(20, 6, 0);
         grid.feed(text.as_bytes());
-        let mut cells = Vec::new();
+        let mut expected = Vec::new();
         grid.for_each_cell(|row, column, cell| {
             if row == 0 && !cell.text().trim().is_empty() {
-                cells.push((column, cell.text()));
+                expected.push((column + PREVIEW_COLUMN, cell.text(), cell.width));
             }
         });
-        let expected: Vec<(u16, String)> = expected_grid
-            .into_iter()
-            .map(|(column, cell)| (column, cell.to_string()))
-            .collect();
-        assert_eq!(cells, expected, "grid of {text:?}");
+
+        assert_eq!(shown, expected, "preview of {text:?} against the grid");
     }
 }
 

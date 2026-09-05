@@ -190,11 +190,6 @@ modifyOtherKeys without reimplementing the negotiation.
 - `Cursor::row` is a row of the current view, so while scrolled into the
   scrollback it can be at or past the last row, meaning the cursor is off
   screen. Do not index a grid with it unchecked.
-- The composition preview drops zero-width codepoints, so a combining mark
-  vanishes from it and an emoji ZWJ sequence splits in two — the same text
-  behaves differently in the grid, which joins them. Reported as
-  [pg83/shitty#109](https://github.com/pg83/shitty/issues/109) and pinned by a
-  test in both directions.
 - Emoji width differs from `alacritty_terminal`: a ZWJ sequence or an
   emoji-modifier sequence is one width-2 cell here and two wide cells there,
   and `U+2764 U+FE0F` is wide here and narrow there. UTS #51 favours this
